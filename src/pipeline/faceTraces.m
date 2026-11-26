@@ -16,7 +16,7 @@ function [fv, fd] = faceTraces(videoPath, subject, cfg, p, fd)
 
 if ~isfolder(cfg.traceDir), mkdir(cfg.traceDir); end
 cacheFile = fullfile(cfg.traceDir, [char(subject) '.mat']);
-key = struct('params', p, 'maxFrames', cfg.maxFrames);
+key = struct('params', p, 'maxFrames', cfg.maxFrames, 'rngSeed', 0);
 
 if isfile(cacheFile)
     S = load(cacheFile, 'fv', 'key');

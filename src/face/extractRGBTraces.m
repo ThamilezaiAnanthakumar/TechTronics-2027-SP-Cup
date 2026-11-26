@@ -27,6 +27,11 @@ if isfile(cacheFile)
     fprintf('Cached traces were made with different settings; re-extracting.\n');
 end
 
+% Fixed RNG per video: estgeotform2d (MSAC) samples points at random, so an
+% unseeded run is not repeatable (docs/CHANGELOG_PARAMS.md, 26 Nov 2026).
+rngSaved = rng;
+rng(0, 'twister');
+rngRestore = onCleanup(@() rng(rngSaved));
 v   = VideoReader(videoPath);
 fps = v.FrameRate;
 nMax = min(cfg.maxFrames, ceil(v.Duration * fps) + 10);
@@ -181,5 +186,5 @@ key = struct('subject', cfg.subject, 'maxFrames', cfg.maxFrames, ...
     'detectEvery', cfg.detectEvery, 'minTrackPts', cfg.minTrackPts, ...
     'roi', cfg.roi, 'useSkinMask', cfg.useSkinMask, 'skinCb', cfg.skinCb, ...
     'skinCr', cfg.skinCr, 'minSkinPixels', cfg.minSkinPixels, ...
-    'degrade', cfg.degrade);
+    'degrade', cfg.degrade, 'rngSeed', 0);   % rngSeed: seeded since 26 Nov 2026
 end

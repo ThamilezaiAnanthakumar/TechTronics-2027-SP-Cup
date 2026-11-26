@@ -41,6 +41,11 @@ nR = numel(names);
 refIdx = find(names == p.occl.reference, 1);
 if isempty(refIdx), refIdx = 1; useRel = false; else, useRel = true; end
 
+% Fixed RNG per video: estgeotform2d (MSAC) samples points at random, so an
+% unseeded run is not repeatable (docs/CHANGELOG_PARAMS.md, 26 Nov 2026).
+rngSaved = rng;
+rng(0, 'twister');
+rngRestore = onCleanup(@() rng(rngSaved));
 v = VideoReader(videoPath);
 H = v.Height;  W = v.Width;
 n = min(opts.MaxFrames, max(1, v.NumFrames));
