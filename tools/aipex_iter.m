@@ -17,7 +17,7 @@ function R = aipex_iter(expId, hypothesis, change, varargin)
 %     kalman      true                    kalman_denoise (Thamil), Npix-weighted
 %     method      'POS' | 'CHROM'
 %     windowSec   10
-%     videoEst    'avgspec' | 'median' | 'mean'
+%     videoEst    'avgspec' | 'median' | 'mean' | 'viterbi' (spectral fusion only; viterbiLambda 0.1)
 %     harmonic    0                       alpha of P(f) + alpha*P(2f) before the video-level peak
 %     posWindowSec 1.6, detrendLambda 100, filterOrder 4, hrBand [0.7 3.0]   (signal chain, getConfig)
 %     cvSeed      2027
@@ -36,7 +36,7 @@ addpath(fullfile(root, 'config')); addpath(genpath(fullfile(root, 'src')));
 C = struct('pixels', 'skin', 'fuse', 'rgb', 'regions', ["forehead" "leftcheek" "rightcheek"], ...
     'topK', 3, 'kalman', true, 'method', 'POS', 'windowSec', 10, 'videoEst', 'avgspec', ...
     'harmonic', 0, 'posWindowSec', 1.6, 'detrendLambda', 100, 'filterOrder', 4, 'hrBand', [0.7 3.0], ...
-    'cvSeed', 2027, 'SetBest', false, ...
+    'viterbiLambda', 0.1, 'cvSeed', 2027, 'SetBest', false, ...
     'TraceRoot', "D:\SPCup Data\work\aipex_iter\traces");
 diffTxt = strings(0);
 for k = 1:2:numel(varargin)
@@ -155,6 +155,28 @@ switch C.fuse
         spec = traceSpectrum(num ./ den, den, fs, C, cfg);
         hr = specToHr(spec, C);
     case 'spectral'                              % per-region spectra, SNR-weighted top-k
+        if strcmp(C.videoEst, 'viterbi')         % per-window fusion -> Viterbi -> conf-weighted mean
+            Pw = {}; Sw = [];
+            for r = regs
+                spec = traceSpectrum(X.(r), W.(r), fs, C, cfg);
+                if isempty(spec), continue; end
+                Pn = spec.P ./ sum(spec.P, 2);
+                Pw{end+1} = Pn; %#ok<AGROW>
+                Sw(:, end+1) = arrayfun(@(w) snrDb(Pn(w, :), spec.f), (1:size(Pn, 1))'); %#ok<AGROW>
+            end
+            if isempty(Pw), hr = NaN; return; end
+            nWin = size(Pw{1}, 1); Pf = zeros(nWin, size(Pw{1}, 2));
+            for w = 1:nWin
+                wt = max(10.^(Sw(w, :) / 10) - 1, 0);
+                if all(wt == 0), wt = ones(size(wt)); end
+                [~, o] = sort(wt, 'descend'); o = o(1:min(C.topK, numel(o)));
+                for j = o, Pf(w, :) = Pf(w, :) + wt(j) * Pw{j}(w, :); end
+                Pf(w, :) = Pf(w, :) / sum(wt(o));
+            end
+            [path, conf] = viterbiHR(Pf, spec.f, Lambda=C.viterbiLambda);
+            hr = sum(conf .* path) / max(sum(conf), eps);
+            return
+        end
         Ps = []; snr = [];
         for r = regs
             spec = traceSpectrum(X.(r), W.(r), fs, C, cfg);
