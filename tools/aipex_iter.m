@@ -19,6 +19,7 @@ function R = aipex_iter(expId, hypothesis, change, varargin)
 %     windowSec   10
 %     videoEst    'avgspec' | 'median' | 'mean'
 %     harmonic    0                       alpha of P(f) + alpha*P(2f) before the video-level peak
+%     posWindowSec 1.6, detrendLambda 100, filterOrder 4, hrBand [0.7 3.0]   (signal chain, getConfig)
 %     cvSeed      2027
 
 arguments
@@ -34,7 +35,8 @@ addpath(fullfile(root, 'config')); addpath(genpath(fullfile(root, 'src')));
 
 C = struct('pixels', 'skin', 'fuse', 'rgb', 'regions', ["forehead" "leftcheek" "rightcheek"], ...
     'topK', 3, 'kalman', true, 'method', 'POS', 'windowSec', 10, 'videoEst', 'avgspec', ...
-    'harmonic', 0, 'cvSeed', 2027, 'SetBest', false, ...
+    'harmonic', 0, 'posWindowSec', 1.6, 'detrendLambda', 100, 'filterOrder', 4, 'hrBand', [0.7 3.0], ...
+    'cvSeed', 2027, 'SetBest', false, ...
     'TraceRoot', "D:\SPCup Data\work\aipex_iter\traces");
 diffTxt = strings(0);
 for k = 1:2:numel(varargin)
@@ -43,7 +45,8 @@ for k = 1:2:numel(varargin)
     C.(name) = varargin{k+1};
     if ~ismember(name, ["SetBest" "TraceRoot"]), diffTxt(end+1) = name + "=" + string(join(string(varargin{k+1}), '|')); end %#ok<AGROW>
 end
-cfg = getConfig('hrWindowSec', C.windowSec);
+cfg = getConfig('hrWindowSec', C.windowSec, 'posWindowSec', C.posWindowSec, ...
+    'detrendLambda', C.detrendLambda, 'filterOrder', C.filterOrder, 'hrBand', C.hrBand);
 
 % ---- dev videos and reference ----
 ids = readlines(fullfile(root, 'shared', 'splits', 'aipex_dev.txt'), 'EmptyLineRule', 'skip');
@@ -188,7 +191,7 @@ switch C.videoEst
 end
 if spec.avg, m = spec.P; else, m = mean(spec.P ./ sum(spec.P, 2), 1); end
 if C.harmonic > 0                                 % H(f) = P(f) + alpha * P(2f)
-    m2 = interp1(spec.f, m, 2 * spec.f, 'linear', 0);
+    m2 = reshape(interp1(spec.f(:), m(:), 2 * spec.f(:), 'linear', 0), size(m));
     m = m + C.harmonic * m2;
 end
 [~, k] = max(m); delta = 0;

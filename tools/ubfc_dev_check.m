@@ -6,12 +6,12 @@ function m = ubfc_dev_check(varargin)
 %   method, harmonic. Dev subjects: 1, 3, 5, 8-16. Traces: seeded run_ubfc_all outputs.
 %   Reference = PPG windows saved by run_pipeline (plain chain, no fusion/tracking).
 %   Returns pooled MAE over all dev windows (m.MAE) and the per-subject MAEs.
-C = struct('fuse', 'rgb', 'topK', 3, 'kalman', false, 'method', 'POS', 'harmonic', 0, ...
+C = struct('fuse', 'rgb', 'topK', 3, 'kalman', false, 'method', 'POS', 'harmonic', 0, 'filterOrder', 4, ...
     'ResultsRoot', "D:\SPCup Data\work\ubfc2_seeded");
 for k = 1:2:numel(varargin), C.(varargin{k}) = varargin{k+1}; end
 root = fileparts(fileparts(mfilename('fullpath')));
 addpath(fullfile(root, 'config')); addpath(genpath(fullfile(root, 'src')));
-cfg = getConfig();
+cfg = getConfig('filterOrder', C.filterOrder);
 subs = [1 3 5 8 9 10 11 12 13 14 15 16];
 estAll = []; refAll = []; perSub = NaN(size(subs));
 for s = 1:numel(subs)
