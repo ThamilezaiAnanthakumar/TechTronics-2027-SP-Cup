@@ -12,6 +12,7 @@
 // Not yet in the MVP: L* pigmentation sub-clusters, temporal-variance mask,
 // 2x2 sub-patches.
 import { CONFIG, PATCHES, SKIN_MODEL_CODES, type FvConfig } from '../config';
+import { LOCAL_CONFIG, type LocalConfig } from '../localConfig';
 import type { TraceFrame, TracePatch } from '../core/types';
 import { ita, srgbToLab } from './color';
 import { eyePose, patchPolygons, rasterise, type Landmarks } from './geometry';
@@ -88,7 +89,7 @@ export class FrontEnd {
   private prevPose: ReturnType<typeof eyePose> | null = null;
   private itaEma = NaN;
 
-  constructor(private cfg: FvConfig = CONFIG) {
+  constructor(private cfg: FvConfig = CONFIG, private local: LocalConfig = LOCAL_CONFIG) {
     this.skin = new SkinModel(cfg);
     this.reset();
   }
@@ -153,7 +154,8 @@ export class FrontEnd {
     const tau2 = cfg.skin_mahalanobis * cfg.skin_mahalanobis;
     for (let pi = 0; pi < nP; pi++) {
       const def = PATCHES[pi];
-      const idx = rasterise(polys[pi], ox, oy, cw, chh);
+      let idx = rasterise(polys[pi], ox, oy, cw, chh);
+      if (this.local.patch_erode_px > 0) idx = erode(idx, cw, chh, this.local.patch_erode_px);
       const total = idx.length;
       const candBuf = new Int32Array(total);
       let nc = 0;
@@ -225,6 +227,25 @@ export class FrontEnd {
       info,
     };
   }
+}
+
+/** Morphological erosion (4-neighbour, r passes) of a pixel set given as crop indices. */
+export function erode(idx: Int32Array, w: number, h: number, r: number): Int32Array {
+  const m = new Uint8Array(w * h);
+  for (const i of idx) m[i] = 1;
+  let cur = idx;
+  for (let pass = 0; pass < r; pass++) {
+    const keep: number[] = [];
+    for (const i of cur) {
+      const x = i % w, y = (i - x) / w;
+      if (x > 0 && x < w - 1 && y > 0 && y < h - 1 && m[i - 1] && m[i + 1] && m[i - w] && m[i + w]) keep.push(i);
+    }
+    const next = Int32Array.from(keep);
+    for (const i of cur) m[i] = 0;
+    for (const i of next) m[i] = 1;
+    cur = next;
+  }
+  return cur;
 }
 
 function addStats(s: SkinStats, cb: number, cr: number) {

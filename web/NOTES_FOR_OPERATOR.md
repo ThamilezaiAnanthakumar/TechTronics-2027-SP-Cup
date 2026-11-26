@@ -57,4 +57,38 @@ d. **Limit of γ = 0.7.** Because H is never attenuated below 0.3, a motion
    capture, the evidence would be for γ → 0.85–0.9 or for a motion-regression
    step (regress the integrated pose out of the RGB traces) — your call.
 
-## 3. Front end (task 2) — see the section below, filled in as work proceeds.
+## 3. Stability under small motion (synthetic face through the FrontEnd)
+
+Harness: `tests/faceSynth.ts` renders a synthetic face (soft-edged brows,
+eyes, nostrils, lips touching the patch borders, warm side light, 1 px skin
+texture, sensor noise SD 3, pulse 0.15 % on G) at IOD 70 px in a 640×480 frame,
+15 fps, 40 s; landmarks go through the same 1-Euro filter as `pipeline.ts`.
+Metric: outputs after warm-up with status OK and |HR − 72| < 5, summed over 3
+seeds (90 outputs per row).
+
+| condition | patch erosion 0 px | 1 px | 2 px |
+|---|---|---|---|
+| still | 85/90 | 81/90 | 0/90 |
+| ±2 px white jitter + 8 px / 0.05 Hz drift + roll | 87/90 | 78/90 | 0/90 |
+| ±2 px correlated jitter (AR 0.8) + drift | 86/90 | 61/90 | 1/90 |
+| ±3 px correlated jitter (AR 0.9) + drift | 84/90 | 56/90 | 5/90 |
+
+Findings:
+- Landmark jitter of ±1–3 px (white or temporally correlated) plus slow drift
+  does **not** reduce the OK fraction on this synthetic face. The 1-Euro filter
+  plus skin/texture selection and the trimmed mean already absorb it. I could
+  not reproduce the "HR disappears with slight head movement" symptom with
+  jitter alone; periodic motion that modulates the light (task 1) and small
+  faces (below) reproduce it.
+- Patch erosion hurts (fewer pixels; at 2 px patches fall below `npix_min`), so
+  `patch_erode_px` stays 0. Trimmed-mean fraction and occlusion EMA are shared
+  constants (`trimmed_mean_frac`, `occlusion_ema_s`); I did not change them and
+  found no evidence that they should change.
+- **Small faces.** At IOD 40 px (face ≈ 1 m from a 640×480 webcam) the same
+  harness gave 0/90: half the patches are below `npix_min` (80 px at VGA) and
+  the rest are LOW_SNR. Before the fix in this commit series those
+  small-but-unoccluded lower-face patches also switched the status to MASKED,
+  which is wrong (README 4.3.5 says *occluded*). The core now counts a patch
+  as occluded only when it is invalid **and** its skin ratio is below
+  `occlusion_off`. Whether `npix_min_qvga` = 20 is too strict for distant faces
+  is your call (shared constant; evidence: synthetic only).

@@ -5,7 +5,7 @@ import { PATCHES } from '../src/config';
 import { InterimCore } from '../src/core/interimCore';
 import type { HrRow } from '../src/core/types';
 import { ita, srgbToLab } from '../src/front/color';
-import { FrontEnd, trimmedMeanRgb } from '../src/front/frontEnd';
+import { erode, FrontEnd, trimmedMeanRgb } from '../src/front/frontEnd';
 import { rasterise } from '../src/front/geometry';
 import { gaussian, mulberry32 } from './synth';
 
@@ -43,6 +43,14 @@ describe('rasterise', () => {
   it('fills an axis-aligned square with exactly its pixels', () => {
     const sq = Float32Array.from([2, 2, 12, 2, 12, 12, 2, 12]);
     expect(rasterise(sq, 0, 0, 20, 20).length).toBe(100);
+  });
+});
+
+describe('erode', () => {
+  it('removes a 1 px rim per pass', () => {
+    const sq = rasterise(Float32Array.from([2, 2, 12, 2, 12, 12, 2, 12]), 0, 0, 20, 20);
+    expect(erode(sq, 20, 20, 1).length).toBe(64);
+    expect(erode(sq, 20, 20, 2).length).toBe(36);
   });
 });
 

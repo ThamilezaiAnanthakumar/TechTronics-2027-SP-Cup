@@ -59,3 +59,26 @@ describe('InterimCore end to end on synthetic TraceFrames', () => {
     }
   });
 });
+
+describe('MASKED status (README 4.3.5)', () => {
+  const lower = new Set(['P', 'LSM', 'RSM', 'LM', 'RM']);
+  function withLower(valid: number, skinRatio: number) {
+    return frames(72, 25, 30).map((f) => ({
+      ...f,
+      patches: f.patches.map((p) => {
+        const code = PATCHES.find((q) => q.id === p.id)!.code;
+        return lower.has(code) && code !== 'LM' && code !== 'RM' ? { ...p, valid, skin_ratio: skinRatio, rgb_mean: [NaN, NaN, NaN] as [number, number, number] } : p;
+      }),
+    }));
+  }
+  it('is set when the lower-face patches are occluded (low skin ratio)', () => {
+    const rows = run(withLower(0, 0.1)).filter((r) => r.status !== 'WARMUP');
+    expect(rows.length).toBeGreaterThan(5);
+    for (const r of rows) expect(r.status).toBe('MASKED');
+  });
+  it('is not set when they are invalid only because they are small (skin ratio normal)', () => {
+    const rows = run(withLower(0, 0.8)).filter((r) => r.status !== 'WARMUP');
+    expect(rows.length).toBeGreaterThan(5);
+    for (const r of rows) expect(r.status).toBe('OK');
+  });
+});

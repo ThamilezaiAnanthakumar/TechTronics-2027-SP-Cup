@@ -159,7 +159,10 @@ export class InterimCore implements SignalCore {
       const recent = frames.filter((f) => f.t_s > T - cfg.step_s && f.face_status > 0);
       const maskedFrames = recent.filter((f) => {
         const ps = f.patches.filter((p) => MASK_IDS.has(p.id));
-        return ps.length > 0 && ps.filter((p) => !p.valid).length / ps.length >= cfg.masked_fraction;
+        // occluded = invalid AND low skin ratio. A patch that is invalid only
+        // because it is small (npix < npix_min: distant face, low resolution)
+        // is not occluded and must not turn the status into MASKED.
+        return ps.length > 0 && ps.filter((p) => !p.valid && p.skin_ratio < cfg.occlusion_off).length / ps.length >= cfg.masked_fraction;
       }).length;
       masked = recent.length > 0 && maskedFrames / recent.length > 0.5;
     }
