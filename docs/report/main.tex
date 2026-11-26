@@ -212,7 +212,16 @@ used further. POS on the combined region gives a pooled MAE of \SI{2.17}{bpm}, b
 \SI{95}{\percent} LoA $[-13.7, +11.4]$\,bpm. Fig.~\ref{fig:persubject} shows that the error is concentrated in a few
 subjects: the median per-subject MAE is \SI{1.19}{bpm}, but subject 15 (\SI{24.8}{bpm}) and subjects 49, 27 and 41
 (\SIrange{5.1}{5.5}{bpm}) dominate the pooled error and the width of the limits of agreement.
-\todo{failure analysis of these subjects (spectrograms, motion) and the effect of quality weighting and HR tracking.}
+Failure analysis (spectrograms, per-region SNR, face-box motion) labels subject 15 as low SNR combined with a
+front-end artefact: the Viola--Jones detector re-runs every 30 frames and the box jumps about once per second,
+injecting colour steps that dominate a weak pulse; subjects 49, 27 and 41 show bursts of error during head motion.
+
+\textbf{ROI ablation (UBFC-dev).} Replacing the three box-fraction regions by the ten anatomical patches of
+Li~\emph{et al.}~\cite{li2026roi}, placed from MediaPipe landmarks~\cite{kartynnik2019facemesh} with 1-Euro
+smoothing and fused by per-window SNR (top-5), reduces the pooled MAE on the 12 dev subjects from 2.51 to
+\SI{1.37}{bpm} (RMSE $6.71\rightarrow\SI{2.21}{bpm}$, $r$ $0.929\rightarrow0.992$, SUC@5 92.7 $\rightarrow$ \SI{97.3}{\percent})
+with the same signal chain and reference windows; subject 15 falls from 13.8 to \SI{1.8}{bpm}.
+\todo{test-split confirmation after the freeze.}
 
 \begin{figure}[t]
 \centering
