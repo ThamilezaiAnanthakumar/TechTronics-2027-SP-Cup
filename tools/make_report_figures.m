@@ -45,5 +45,30 @@ for k = 1:numel(vals), text(vals(k) + 0.3, k, sprintf('%.1f', vals(k)), 'FontSiz
 set(gca, 'YTick', 1:numel(vals), 'YTickLabel', names, 'FontSize', 7, 'XLim', [0 25], 'Box', 'off');
 xlabel('Video-level MAE (bpm), 88 videos'); grid on; ax = gca; ax.YGrid = 'off';
 exportgraphics(f, fullfile(F, 'aipex_comparison.pdf'), 'ContentType', 'vector'); close(f);
+waterfall_aipex(root, F);
 fprintf('figures written to %s\n', F);
+end
+
+function waterfall_aipex(root, F)
+%WATERFALL_AIPEX Kept changes of the AiPEX-dev loop (outputs/aipex_iter/log.csv) + published methods.
+L = readtable(fullfile(root, 'outputs', 'aipex_iter', 'log.csv'), 'TextType', 'string', 'Delimiter', ',');
+k = L(ismember(L.decision, ["baseline" "keep"]), :);
+B = readtable(fullfile(root, 'outputs', 'repro', 'aipex_paper_baseline.csv'), 'TextType', 'string');
+B = B(B.Subset == "All", :);
+names = ["E000 baseline", "E003 spectral fusion", "E010 BPF order 2"];
+vals = k.cv_mae(ismember(k.exp_id, ["E000" "E003" "E010"]))';
+f = figure('Visible', 'off', 'Units', 'centimeters', 'Position', [0 0 8.6 5.2]);
+if exist('theme', 'file'), theme(f, 'light'); end
+bar(1:numel(vals), vals, 0.6, 'FaceColor', [0.165 0.471 0.839], 'EdgeColor', 'none'); hold on;
+for i = 1:numel(vals), text(i, vals(i) + 0.4, sprintf('%.2f', vals(i)), 'HorizontalAlignment', 'center', 'FontSize', 7); end
+pub = containers.Map(["BKF" "Chrom" "POS"], ["BKF" "CHROM" "POS"]);
+ls = ["-" "--" ":"]; m = ["BKF" "Chrom" "POS"];
+for j = 1:3
+    y = B.MAE(B.Method == m(j));
+    yline(y, ls(j), "published " + pub(m(j)) + sprintf(' %.1f', y), 'Color', [0.4 0.4 0.4], 'FontSize', 6.5, 'LabelHorizontalAlignment', 'right');
+end
+set(gca, 'XTick', 1:numel(vals), 'XTickLabel', names, 'FontSize', 7, 'YLim', [0 16], 'Box', 'off', ...
+    'XLim', [0.4 numel(vals) + 1.9]);   % room on the right for the published-method labels
+ylabel('AiPEX-dev CV MAE (bpm)'); grid on; ax = gca; ax.XGrid = 'off';
+exportgraphics(f, fullfile(F, 'aipex_waterfall.pdf'), 'ContentType', 'vector'); close(f);
 end

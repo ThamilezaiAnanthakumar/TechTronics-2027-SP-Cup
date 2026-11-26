@@ -265,9 +265,27 @@ POS baseline from 18.6 to \SI{13.1}{bpm} (reproduced). The bias of that baseline
 (\SI{+18.6}{bpm}): every video is over-estimated, which points to a systematic scale error such as an incorrect
 frame-rate assumption.
 Because the same method performs worse in our implementation than in the original study, we attribute the gap mainly
-to input handling (frame timing of the phone videos, skin masking of pre-cropped regions, region fusion and the
-video-level estimator) rather than physiology; these are tested first on AiPEX-dev with cross-validation
-\todo{results of the AiPEX-dev iteration and the single AiPEX-test run}.
+to input handling rather than physiology.
+
+\textbf{Development on AiPEX-dev.} We changed one factor at a time on the 62 dev subjects (5-fold
+cross-validation stratified by country, nested for multi-valued settings) and kept a change only if the paired
+bootstrap 95\,\% CI of its gain excluded zero, UBFC-dev did not degrade by more than 0.1\,bpm and the
+India--Sierra Leone gap did not widen by more than 0.5\,bpm. Of 18 hypotheses, two were kept
+(Fig.~\ref{fig:waterfall}): SNR-weighted spectral fusion of the three regions instead of averaging their colour
+(\SI{14.29}{} $\rightarrow$ \SI{10.99}{bpm}; UBFC-dev \SI{3.50}{} $\rightarrow$ \SI{2.45}{bpm}) and a second- instead of
+fourth-order band-pass (\SI{10.99}{} $\rightarrow$ \SI{8.39}{bpm}). The country gap fell from 5.9 to
+\SI{0.2}{bpm} (India 8.22, Sierra Leone \SI{8.43}{bpm}). Frame timing was ruled out (all files are exactly
+15\,fps and the estimate/reference ratios do not cluster), and the averaged spectrum proved more robust than the
+median of window peaks, whose bias of \SI{+12}{bpm} shows that individual windows are dominated by noise.
+Viterbi tracking, trimmed-mean and texture-masked pixel selection gave small, non-significant improvements
+(\SIrange{7.6}{8.1}{bpm}). \todo{single AiPEX-test run after the freeze (28 Nov); BKF re-implementation.}
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\columnwidth]{figures/aipex_waterfall.pdf}
+\caption{AiPEX-dev cross-validated MAE for the kept changes, with published methods on all 88 videos for context.}
+\label{fig:waterfall}
+\end{figure}
 
 % ------------------------------------------------------------------------------------------------
 \section{Edge deployment}
