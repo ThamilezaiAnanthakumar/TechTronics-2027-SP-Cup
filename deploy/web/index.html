@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>FaceVitals Live</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <div>
+      <h1>FaceVitals Live</h1>
+      <p class="sub">TechTronics · SP Cup 2027 · live rPPG heart rate (research demo, not a medical device)</p>
+    </div>
+    <span id="status" class="pill">Idle</span>
+  </header>
+
+  <main>
+    <section class="card video-card">
+      <div class="video-wrap">
+        <video id="video" playsinline muted></video>
+        <canvas id="overlay"></canvas>
+        <div id="placeholder" class="placeholder">Press <b>Start</b> to open the camera</div>
+      </div>
+      <div class="controls">
+        <button id="startBtn" class="primary">Start</button>
+        <button id="lockBtn" disabled title="Lock exposure and white balance (if the camera allows it)">Lock camera</button>
+        <label>Method
+          <select id="methodSel"><option>POS</option><option>CHROM</option><option>GREEN</option></select>
+        </label>
+        <label>ROI
+          <select id="roiSel">
+            <option value="combined">combined</option><option value="forehead">forehead</option>
+            <option value="leftCheek">leftCheek</option><option value="rightCheek">rightCheek</option>
+          </select>
+        </label>
+      </div>
+      <p id="camInfo" class="hint"></p>
+    </section>
+
+    <section class="card readout">
+      <div class="hr-big"><span id="hrStable">--</span><small>bpm</small></div>
+      <div class="hr-label">Heart rate (median of last 5 s)</div>
+      <dl class="stats">
+        <dt>Latest window</dt><dd id="hrRaw">--</dd>
+        <dt>Signal quality</dt><dd><span id="quality" class="q">--</span></dd>
+        <dt>Face coverage</dt><dd id="coverage">--</dd>
+        <dt>Camera fps</dt><dd id="fps">--</dd>
+        <dt>Elapsed</dt><dd id="elapsed">--</dd>
+      </dl>
+      <div id="warmup" class="warmup" hidden><div id="warmupBar"></div></div>
+      <ul class="tips">
+        <li>Face a window or lamp; avoid backlight and flicker.</li>
+        <li>Stay still, about 50 cm from the camera.</li>
+        <li>First reading after 10 s; it settles over ~20 s.</li>
+      </ul>
+    </section>
+
+    <section class="card"><h2>Pulse signal (last 10 s)</h2><canvas id="pulseChart" class="chart"></canvas></section>
+    <section class="card"><h2>Spectrum <span class="muted" id="specLabel"></span></h2><canvas id="specChart" class="chart"></canvas></section>
+
+    <section class="card wide">
+      <h2>Heart rate history</h2>
+      <canvas id="histChart" class="chart tall"></canvas>
+      <div class="legend"><span class="sw est"></span>estimate <span class="sw stable"></span>median 5 s <span class="sw ref"></span>reference you logged</div>
+    </section>
+
+    <section class="card">
+      <h2>Validate against a reference</h2>
+      <p class="hint">Read your HR from a pulse oximeter or smartwatch and log it. Error is against the median estimate at that moment.</p>
+      <form id="refForm" class="ref-form">
+        <input id="refInput" type="number" min="30" max="220" step="1" placeholder="Reference bpm" required>
+        <button type="submit" id="refBtn" disabled>Log</button>
+      </form>
+      <p id="refStats" class="ref-stats">No references logged.</p>
+      <table class="small" id="refTable"><thead><tr><th>t (s)</th><th>Ref</th><th>Est</th><th>Error</th></tr></thead><tbody></tbody></table>
+    </section>
+
+    <section class="card">
+      <h2>All methods × ROIs <span class="muted">(latest window, bpm / SNR dB)</span></h2>
+      <table id="comboTable" class="small combos"></table>
+      <h2 class="mt">Session data</h2>
+      <p class="hint">Raw ROI traces, every estimate and your references as CSV, for analysis in MATLAB (<code>tools/analyzeWebSession.m</code>).</p>
+      <button id="exportBtn" disabled>Download session CSVs</button>
+    </section>
+  </main>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>
