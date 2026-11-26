@@ -67,3 +67,11 @@ Thumbs.db
 
 # Reference papers (copyrighted, keep local)
 docs/references/*.pdf
+
+# ---------- Sri Ramachandra (organiser data; possible minor; never commit) ----------
+**/Sri*Ramachandra*/**
+**/S_N[0-9]*
+**/*_Resting.*
+**/*_Walking.*
+**/*_Stairs.*
+**/*_Squats.*

@@ -73,12 +73,13 @@ Naming: `RoundX_Condition_Constraint.mat` (Condition ∈ Baseline, LowLight, Low
 ### 1.5 Open questions to send to the organiser NOW (cc `sp-competitions@listserv.ieee.org`, required)
 1. Are "Task 1" and "Round 1" the same submission? (The document describes both.)
 2. Task 1 asks for 1280×720 baseline. UBFC is 640×480. Is a VGA public baseline acceptable, or must the baseline `.mat` be HD?
-7. **Sri Ramachandra data was shared without ground truth.** Is the reference (pulse oximeter HR/SpO2, BP) available on request, or is it withheld as a hidden test set? If hidden, in what format should blind predictions be submitted? Do subject metadata (age, skin type, lux) exist?
-8. Does the data agreement allow showing Sri Ramachandra faces in the report or demo video?
 3. `facial_video` inside the `.mat` is ~1–2 GB per minute of VGA. Size limit? One subject or all?
 4. Are simulated constraint conditions (official recipes) accepted as constraint evidence in Round 1?
 5. The directory list shows `Round4_FullSystem_Clinical` but there are three rounds — typo?
 6. Is a Python `process_round1.py` acceptable alongside the MATLAB one?
+7. **Sri Ramachandra data was shared without ground truth.** The file names follow the protocol of Arulselvi et al. (2023): rest, walk, stairs and squats, recorded with a patient monitoring system. Can you share the **patient monitoring system HR and SpO2 readings for each subject and each task** (with timestamps if available)? If they are withheld as a hidden test set, in what format should blind predictions be submitted? Do subject metadata (age, skin type, lux) exist?
+8. Does the data agreement allow showing Sri Ramachandra faces at all — in the report, figures or demo video?
+9. Some Sri Ramachandra subjects appear to be minors. Does the data agreement cover minors, and are there any extra conditions on how their data may be used?
 
 ---
 
@@ -283,6 +284,14 @@ Implement degradations in `src/+fv/+degrade/`. Each takes a video path plus para
 
 ### 6.1 Using the Sri Ramachandra videos without ground truth
 The organiser's data cannot support accuracy claims as it stands. It is still valuable, because it is the data closest to what the judges care about. Owner: Thamil.
+
+**Known facts (26 Nov 2026; reported by the operator, still to be confirmed by `fv.io.loadSriRamachandra` / probe scripts — see `docs/DATASET_SRIRAM.md`):**
+- Sample `S_N103_Resting.mp4`: 848×480, ~29.6 fps (steady timestamps), H.264 ~1.4 Mbps, ~32 s, mono AAC audio.
+- No ground truth in this file: no sidecar or metadata readings, no monitor or oximeter in frame, and no periodic beeps in the audio (spectrogram). The audio-beep and monitor-OCR routes in Step 1 do not apply to it; still check the other files quickly.
+- File names match the organiser's protocol (Arulselvi et al. 2023: rest, walk, stairs, squats, with patient-monitor readings), so the organiser question (Section 1.5, Q7) asks specifically for the patient monitoring system HR and SpO2 per subject and task.
+- Recorded outdoors and backlit, so the face is underexposed: treat it as real-world C1 evidence for the GT-free analyses.
+- A quick fixed-box POS check gave forehead / left-cheek / right-cheek medians of ~104 / 89 / 64 bpm, region-to-region MAE 24–35 bpm, SNR about −4 dB. Plain POS is unreliable here; use these videos as stress tests for the confidence/status logic.
+- **The subject appears to be a minor.** Never put Sri Ramachandra faces in figures, the report, demos or committed files. The data stays out of git (`.gitignore`). Section 1.5, Q8–Q9 ask whether minors are covered and whether faces may be shown at all.
 
 **Step 1 — look for a reference before giving up (half a day).**
 - Email the organiser (Section 1.5, question 7). The reference may be withheld deliberately as a hidden test set.
