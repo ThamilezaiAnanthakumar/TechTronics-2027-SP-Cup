@@ -136,6 +136,21 @@ export class Pipeline {
     this.begin();
   }
 
+  /** Mean luma (0..255) of the central half of the current video frame, on an 80x60 thumbnail. */
+  private frameLuma(): number {
+    const v = this.video;
+    if (!v.videoWidth) return NaN;
+    const c = document.createElement('canvas');
+    c.width = 80; c.height = 60;
+    const g = c.getContext('2d', { willReadFrequently: true });
+    if (!g) return NaN;
+    g.drawImage(v, v.videoWidth / 4, v.videoHeight / 4, v.videoWidth / 2, v.videoHeight / 2, 0, 0, 80, 60);
+    const d = g.getImageData(0, 0, 80, 60).data;
+    let s = 0;
+    for (let p = 0; p < d.length; p += 4) s += 0.299 * d[p] + 0.587 * d[p + 1] + 0.114 * d[p + 2];
+    return s / (d.length / 4);
+  }
+
   private async lockCamera(track: MediaStreamTrack) {
     if (!this.running || track.readyState !== 'live') return;
     const caps = (track.getCapabilities?.() ?? {}) as Record<string, unknown>;
@@ -158,10 +173,30 @@ export class Pipeline {
       this.ev.onLog('Exposure / white-balance lock not supported by this camera or browser (auto stays on)');
       return;
     }
+    // Some drivers report a stale/default exposureTime while in auto mode; copying it
+    // into manual mode can freeze the camera on a much shorter exposure (dark image).
+    // Guard: compare frame brightness before and after the lock, revert if it dropped.
+    const yBefore = this.frameLuma();
+    this.ev.onLog(`Before lock: exposureTime ${cur.exposureTime ?? '?'}, colorTemperature ${cur.colorTemperature ?? '?'}, frame luma ${yBefore.toFixed(0)}/255`);
     try {
       await track.applyConstraints({ advanced: [adv as MediaTrackConstraintSet] });
     } catch (e) {
       this.ev.onLog(`Camera lock failed: ${(e as Error).message}`);
+    }
+    await new Promise((r) => window.setTimeout(r, 1500));
+    if (!this.running || track.readyState !== 'live') return;
+    const yAfter = this.frameLuma();
+    const sl = track.getSettings() as Record<string, unknown>;
+    this.ev.onLog(`After lock: exposureTime ${sl.exposureTime ?? '?'}, frame luma ${yAfter.toFixed(0)}/255`);
+    if (Number.isFinite(yBefore) && Number.isFinite(yAfter) && yAfter < 0.75 * yBefore) {
+      const back: Record<string, unknown> = {};
+      if (adv.exposureMode) back.exposureMode = 'continuous';
+      if (adv.whiteBalanceMode) back.whiteBalanceMode = 'continuous';
+      if (adv.focusMode) back.focusMode = 'continuous';
+      try {
+        await track.applyConstraints({ advanced: [back as MediaTrackConstraintSet] });
+      } catch { /* keep going; status below reports what the camera accepted */ }
+      this.ev.onLog(`Lock darkened the image (${yBefore.toFixed(0)} -> ${yAfter.toFixed(0)}); reverted to auto exposure / white balance`);
     }
     const s = track.getSettings() as Record<string, unknown>;
     this.lock = {
