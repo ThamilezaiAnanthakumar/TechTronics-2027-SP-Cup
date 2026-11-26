@@ -136,15 +136,19 @@ export class Pipeline {
     this.begin();
   }
 
-  /** Mean luma (0..255) of the central half of the current video frame, on an 80x60 thumbnail. */
-  private frameLuma(): number {
+  /**
+   * Mean luma (0..255) of the current video frame on an 80x60 thumbnail: the whole
+   * frame (scene lighting, independent of skin tone) or only its central half.
+   */
+  frameLuma(full = false): number {
     const v = this.video;
     if (!v.videoWidth) return NaN;
     const c = document.createElement('canvas');
     c.width = 80; c.height = 60;
     const g = c.getContext('2d', { willReadFrequently: true });
     if (!g) return NaN;
-    g.drawImage(v, v.videoWidth / 4, v.videoHeight / 4, v.videoWidth / 2, v.videoHeight / 2, 0, 0, 80, 60);
+    if (full) g.drawImage(v, 0, 0, 80, 60);
+    else g.drawImage(v, v.videoWidth / 4, v.videoHeight / 4, v.videoWidth / 2, v.videoHeight / 2, 0, 0, 80, 60);
     const d = g.getImageData(0, 0, 80, 60).data;
     let s = 0;
     for (let p = 0; p < d.length; p += 4) s += 0.299 * d[p] + 0.587 * d[p + 1] + 0.114 * d[p + 2];

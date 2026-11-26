@@ -6,6 +6,9 @@ import type { FrameInfo } from '../front/frontEnd';
 import { Pipeline, type Source } from '../pipeline';
 import { STATUS_COLOR, drawBvp, drawOverlay, drawSpectrogram, type SpecColumn } from './draw';
 
+/** Provisional C1 threshold on whole-frame mean luma (0..255); to move into shared/config.default.json. */
+const LOW_LIGHT_FRAME_LUMA = 40;
+
 const SPEC_SPAN_S = 60;
 const STATUS_TEXT: Record<string, string> = {
   OK: 'Measuring',
@@ -50,6 +53,13 @@ export default function App() {
   const [stats, setStats] = useState({ fps: 0, procMs: 0, faces: 0 });
   const [logs, setLogs] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [frameY, setFrameY] = useState(NaN);
+  // whole-frame brightness, sampled once per second while running (C1 warning)
+  useEffect(() => {
+    if (!running) { setFrameY(NaN); return; }
+    const id = window.setInterval(() => setFrameY(pipe.current?.frameLuma(true) ?? NaN), 1000);
+    return () => window.clearInterval(id);
+  }, [running]);
 
   const log = useCallback((line: string) => {
     const ts = new Date().toLocaleTimeString();
@@ -177,7 +187,11 @@ export default function App() {
   const shownStatus = tick && (tick.status === 'NO_FACE' || tick.status === 'LOW_COVERAGE') ? tick.status : last?.status ?? tick?.status ?? null;
   const hrOk = last && (last.status === 'OK' || last.status === 'MASKED') && Number.isFinite(last.hr_bpm) && shownStatus === last.status;
   const conf = hrOk ? last!.confidence : 0;
-  const lowLight = info && Number.isFinite(info.luma) && info.luma < CONFIG.low_light_luma;
+  // C1 warning from whole-frame brightness (scene light), not skin brightness:
+  // skin luma also depends on skin tone, so a skin threshold would flag darker
+  // skin as "low light" (C2 bias). LOW_LIGHT_FRAME_LUMA is a provisional web-only
+  // value until it is moved into shared/config.default.json.
+  const lowLight = running && Number.isFinite(frameY) && frameY < LOW_LIGHT_FRAME_LUMA;
   const itaVal = info?.itaDeg ?? NaN;
   const nOcc = info ? info.occluded.filter(Boolean).length : 0;
   const warmLeft = tick ? Math.max(0, CONFIG.window_s + CONFIG.viterbi_lag_s - (tick.t_s - (t0.current ?? tick.t_s))) : null;
@@ -214,7 +228,7 @@ export default function App() {
           {running && stats.faces > 1 && <div className="hint">{stats.faces} faces — click a face to make it the target.</div>}
           {lowLight && (
             <div className="warn" role="alert">
-              Low light: face brightness {info!.luma.toFixed(0)}/255. Add light in front of the face for a reliable reading.
+              Low light: frame brightness {frameY.toFixed(0)}/255. Add light in front of the face for a reliable reading.
             </div>
           )}
           <div className="controls">
@@ -259,8 +273,10 @@ export default function App() {
           <dl className="facts">
             <dt>Skin tone (ITA)</dt>
             <dd>{Number.isFinite(itaVal) ? `${itaVal.toFixed(1)}° · ${itaCategory(itaVal)}` : '--'}</dd>
-            <dt>Face brightness</dt>
-            <dd className={lowLight ? 'bad' : ''}>{info && Number.isFinite(info.luma) ? `${info.luma.toFixed(0)} / 255` : '--'}</dd>
+            <dt>Frame brightness</dt>
+            <dd className={lowLight ? 'bad' : ''}>{running && Number.isFinite(frameY) ? `${frameY.toFixed(0)} / 255` : '--'}</dd>
+            <dt>Face skin brightness</dt>
+            <dd>{info && Number.isFinite(info.luma) ? `${info.luma.toFixed(0)} / 255` : '--'}</dd>
             <dt>Patches used</dt>
             <dd>{last && hrOk ? `${last.n_patches_used} of 10` : '--'}{nOcc ? ` · ${nOcc} occluded` : ''}</dd>
             <dt>Skin model</dt>
