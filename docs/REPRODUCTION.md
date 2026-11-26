@@ -17,5 +17,8 @@ Baseline 1.28, QVGA 1.42, MultiFace 1.28, Masked 1.45, Stress 1.48 bpm.
 All 8 subjects: identical except Stress (README 1.51 / RMSE 2.86 → re-run 1.44 / 2.63), attributed to the same unseeded `estgeotform2d` in `FaceTracker.m`.
 ms/frame (21–42) is not comparable: four MATLAB jobs shared 4 cores. Re-measure on an idle machine.
 
-## AiPEX
-Pending (Muftee `run_aipex` @ f9d4155; Thamil `aipex_hr` @ f629042 code).
+## AiPEX, all 88 videos (aggregates only; per-video results of AiPEX-test not inspected)
+**Muftee `run_aipex` @ f9d4155 — reproduces exactly** (max |MAE difference| over all method x ROI x subset rows: 5e-13 bpm; 88 videos, 82.9 min, serial).
+Video-level HR = peak of the averaged window spectra. Best: POS / right cheek MAE 18.06, RMSE 25.52, 21.6 % within 5 bpm (India 20.10, Sierra Leone 16.01). CHROM / combined 18.12; POS / combined 21.07 (India 21.12, Sierra Leone 21.01).
+
+**Thamil `aipex_hr` (code = f629042)**: pending.
