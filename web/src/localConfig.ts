@@ -66,6 +66,12 @@ export interface LocalConfig {
   // ---- front end (README 4.3, web implementation choices) ----
   /** Erode each patch polygon by this many pixels at its edges (0 = off). */
   patch_erode_px: number;
+
+  // ---- target selection (README 4.1 / 11.2.4 appearance gate) ----
+  /** Reject a re-acquisition candidate whose colour-histogram Bhattacharyya distance exceeds this. */
+  appearance_max_bhattacharyya: number;
+  /** EMA weight of each confirmed target observation in the appearance model (one per second). */
+  appearance_ema: number;
 }
 
 export const LOCAL_CONFIG: LocalConfig = {
@@ -80,4 +86,6 @@ export const LOCAL_CONFIG: LocalConfig = {
   motion_patch_level: true,
   motion_reject_step: 0,
   patch_erode_px: 0,
+  appearance_max_bhattacharyya: 0.5,
+  appearance_ema: 0.05,
 };

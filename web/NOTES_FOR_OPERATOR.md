@@ -21,6 +21,8 @@ Nothing under `shared/` was changed.
 | `motion_patch_level` | true | apply the attenuation to each patch spectrum before SNR / peak (see 2c) |
 | `motion_reject_step` | 0 (off) | frame rejection on large inter-frame motion; no measurable effect on synthetic jerks, kept off |
 | `patch_erode_px` | 0 | front end: erode patch polygons (see section 3) |
+| `appearance_max_bhattacharyya` | 0.5 | README 4.1 appearance gate threshold (see section 4) |
+| `appearance_ema` | 0.05 | appearance model update per second while the target is tracked |
 
 ## 2. Motion suppression: deviations from the literal README 4.8.2 text
 
@@ -92,3 +94,17 @@ Findings:
   as occluded only when it is invalid **and** its skin ratio is below
   `occlusion_off`. Whether `npix_min_qvga` = 20 is too strict for distant faces
   is your call (shared constant; evidence: synthetic only).
+
+## 4. Appearance gate (README 4.1 / 11.2.4)
+
+`src/front/appearance.ts`: 256-bin histogram (8×8 normalised-chromaticity
+r, g bins × 4 soft brightness bins) of the central half of the face box, taken
+from a 160×120 thumbnail on the main thread; Bhattacharyya distance (OpenCV
+definition). The model is learned during the first 2 s (or at a click) and
+updated once per second while tracked (EMA 0.05). It is checked on
+re-acquisition and whenever the nearest face jumps by > 0.3 face sizes; a
+rejected candidate is not adopted (a click still overrides).
+Synthetic distances: same face 0.04, same face with −15 % exposure 0.27, three
+other skin tones 0.86–0.91 → threshold 0.5. **Untested on real faces**; two
+people with similar skin tone under the same light will likely pass the gate,
+as with any colour-only gate. The README gives no threshold; please confirm.

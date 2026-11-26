@@ -9,6 +9,8 @@ import type { FrameInfo } from './front/frontEnd';
 import { landmarksBox, type Box, type Landmarks } from './front/geometry';
 import type { FromWorker, ToWorker } from './front/messages';
 import { OneEuroLandmarks } from './front/oneEuro';
+import { AppearanceGate, centralHistogram } from './front/appearance';
+import { LOCAL_CONFIG } from './localConfig';
 
 export type Source = 'live' | 'file';
 
@@ -49,6 +51,10 @@ export class Pipeline {
   private lockTimer: number | null = null;
   private lastDiagLog = 0;
   private lmFilter = new OneEuroLandmarks(1.0, 0.02, 1.0);
+  private gate = new AppearanceGate(LOCAL_CONFIG.appearance_max_bhattacharyya, LOCAL_CONFIG.appearance_ema);
+  private gateT = -Infinity;
+  private gateRejectLogT = -Infinity;
+  private thumb: HTMLCanvasElement | null = null;
   lock: CameraLock = { ae_locked: false, awb_locked: false, focus_locked: false, fps_fixed: false, settings: {} };
   fileName = '';
 
@@ -250,7 +256,35 @@ export class Pipeline {
     this.ev.onLog(`Lock: AE ${this.lock.ae_locked ? 'locked' : 'not locked'}, AWB ${this.lock.awb_locked ? 'locked' : 'not locked'}, focus ${this.lock.focus_locked ? 'locked' : 'not locked'}`);
   }
 
+  /** Colour histogram of the central half of a (normalised) face box, from a 160x120 thumbnail. */
+  private faceHist(b: Box): Float64Array | null {
+    try {
+      const v = this.video;
+      if (!v.videoWidth) return null;
+      this.thumb ??= Object.assign(document.createElement('canvas'), { width: 160, height: 120 });
+      const g = this.thumb.getContext('2d', { willReadFrequently: true });
+      if (!g) return null;
+      g.drawImage(v, 0, 0, 160, 120);
+      const d = g.getImageData(0, 0, 160, 120).data;
+      return centralHistogram(d, 160, 120, { x: b.x * 160, y: b.y * 120, w: b.w * 160, h: b.h * 120 });
+    } catch {
+      return null;
+    }
+  }
+
+  /** Learn the target's appearance (at most once per second unless forced). */
+  private learnAppearance(b: Box, t: number, force = false) {
+    if (!force && t - this.gateT < 1) return;
+    const h = this.faceHist(b);
+    if (!h) return;
+    if (force) this.gate.reset();
+    this.gate.update(h);
+    this.gateT = t;
+  }
+
   private begin() {
+    this.gate.reset();
+    this.gateT = -Infinity;
     this.post({ type: 'reset', method: this.method });
     this.ev.onReset();
     Object.assign(this, {
@@ -368,6 +402,7 @@ export class Pipeline {
       if (best >= 0) {
         this.designated = true;
         this.targetBox = boxes[best];
+        this.learnAppearance(boxes[best], t, true);
         this.post({ type: 'reset', method: this.method }); // new person: restart skin model and core
         this.ev.onReset();
         this.ev.onLog('Target designated by click');
@@ -382,6 +417,7 @@ export class Pipeline {
     if (this.tStart === null) this.tStart = t;
     if (!this.targetBox || (!this.designated && t - this.tStart < CONFIG.target_first_s)) {
       this.targetBox = boxes[largest];
+      this.learnAppearance(boxes[largest], t, !this.gate.hasModel);
       return { idx: largest, status: 1 };
     }
     // re-acquire only near the last target position
@@ -396,9 +432,24 @@ export class Pipeline {
       this.targetLost = true;
       return { idx: -1, status: 0 };
     }
+    // appearance gate (README 4.1): on re-acquisition, or when the nearest face
+    // jumped (a bystander may have stepped into the target position)
+    const size = Math.max(this.targetBox.w, this.targetBox.h);
+    if (this.targetLost || bd > 0.3 * size) {
+      const h = this.faceHist(boxes[best]);
+      if (h && !this.gate.accept(h)) {
+        if (t - this.gateRejectLogT > 3) {
+          this.gateRejectLogT = t;
+          this.ev.onLog(`Appearance gate: candidate rejected (Bhattacharyya ${this.gate.distance(h).toFixed(2)} > ${LOCAL_CONFIG.appearance_max_bhattacharyya})`);
+        }
+        this.targetLost = true;
+        return { idx: -1, status: 0 };
+      }
+    }
     this.targetBox = boxes[best];
     const status = this.targetLost ? 2 : 1;
     this.targetLost = false;
+    if (status === 1) this.learnAppearance(boxes[best], t);
     return { idx: best, status };
   }
 
