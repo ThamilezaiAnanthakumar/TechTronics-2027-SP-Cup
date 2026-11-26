@@ -8,7 +8,7 @@ export type ToWorker =
   | { type: 'export'; header: Record<string, unknown> };
 
 export type FromWorker =
-  | { type: 'frame'; info: FrameInfo; procMs: number }
+  | { type: 'frame'; info: FrameInfo; procMs: number; diag?: { bitmapLuma: number; cropLuma: number; size: string; crop: string } }
   | { type: 'tick'; tick: CoreTick }
   | { type: 'rows'; rows: HrRow[] }
   | { type: 'export'; trace: string; nFrames: number };

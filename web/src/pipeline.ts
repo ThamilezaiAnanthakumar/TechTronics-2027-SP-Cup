@@ -46,6 +46,7 @@ export class Pipeline {
   private lastTarget = -1;
   private lastLm: Landmarks | null = null;
   private lockTimer: number | null = null;
+  private lastDiagLog = 0;
   lock: CameraLock = { ae_locked: false, awb_locked: false, focus_locked: false, fps_fixed: false, settings: {} };
   fileName = '';
 
@@ -141,6 +142,13 @@ export class Pipeline {
    * frame (scene lighting, independent of skin tone) or only its central half.
    */
   frameLuma(full = false): number {
+    try { return this.frameLumaUnsafe(full); } catch (e) {
+      this.ev.onLog(`frameLuma failed: ${(e as Error).name}: ${(e as Error).message}`);
+      return NaN;
+    }
+  }
+
+  private frameLumaUnsafe(full: boolean): number {
     const v = this.video;
     if (!v.videoWidth) return NaN;
     const c = document.createElement('canvas');
@@ -303,6 +311,13 @@ export class Pipeline {
       const n = this.frameTimes.length;
       const fps = n > 1 ? (n - 1) / (this.frameTimes[n - 1] - this.frameTimes[0]) : 0;
       this.ev.onFrame(m.info, this.lastFaces, this.lastTarget, this.lastLm, m.procMs, fps);
+      // diagnostics every ~3 s: brightness at each stage of the capture path
+      const now = performance.now();
+      if (m.diag && now - this.lastDiagLog > 3000) {
+        this.lastDiagLog = now;
+        const fmt = (x: number) => (Number.isFinite(x) ? x.toFixed(0) : 'NaN');
+        this.ev.onLog(`Diag: video ${this.video.videoWidth}x${this.video.videoHeight} luma ${fmt(this.frameLuma(true))} | worker bitmap ${m.diag.size} luma ${fmt(m.diag.bitmapLuma)} | face crop ${m.diag.crop} luma ${fmt(m.diag.cropLuma)} | patch skin luma ${fmt(m.info.luma)}`);
+      }
     } else if (m.type === 'tick') {
       this.ev.onTick(m.tick);
       if (m.tick.row) this.ev.onRows([m.tick.row]);
