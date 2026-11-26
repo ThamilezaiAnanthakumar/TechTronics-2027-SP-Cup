@@ -21,4 +21,5 @@ ms/frame (21–42) is not comparable: four MATLAB jobs shared 4 cores. Re-measur
 **Muftee `run_aipex` @ f9d4155 — reproduces exactly** (max |MAE difference| over all method x ROI x subset rows: 5e-13 bpm; 88 videos, 82.9 min, serial).
 Video-level HR = peak of the averaged window spectra. Best: POS / right cheek MAE 18.06, RMSE 25.52, 21.6 % within 5 bpm (India 20.10, Sierra Leone 16.01). CHROM / combined 18.12; POS / combined 21.07 (India 21.12, Sierra Leone 21.01).
 
-**Thamil `aipex_hr` (code = f629042)**: pending.
+**Thamil `aipex_hr` (code = f629042) — reproduces** (reported 18.6 -> 13.1): POS baseline (Sulojan skin mask, `sanity_hr`) MAE **18.61**, RMSE 19.91, bias **+18.61** [LoA +4.7, +32.5]; with `kalman_denoise` MAE **13.05**, RMSE 14.56, bias +12.98. India 18.73 / 13.36, Sierra Leone 18.50 / 12.74.
+Observation for Section 2.2: bias = MAE, i.e. every video is over-estimated. A purely positive, roughly proportional error is the signature of a frame-timing scale error (nominal vs. true fps); test first on AiPEX-dev.

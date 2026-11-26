@@ -261,7 +261,9 @@ Fig.~\ref{fig:aipex} compares our pipeline with the published methods. Our best 
 reaches \SI{18.06}{bpm} MAE, well behind BKF (\SI{5.8}{bpm}) and also behind the published CHROM and POS
 implementations on the same data. Errors are similar for India and Sierra Leone (POS, combined: \num{21.1} vs.\
 \SI{21.0}{bpm}), so the gap is not primarily a skin-tone effect of our skin mask. Kalman denoising reduced the MAE of a
-POS baseline from 18.6 to \SI{13.1}{bpm} in an earlier team experiment \todo{reproduction pending}.
+POS baseline from 18.6 to \SI{13.1}{bpm} (reproduced). The bias of that baseline equals its MAE
+(\SI{+18.6}{bpm}): every video is over-estimated, which points to a systematic scale error such as an incorrect
+frame-rate assumption.
 Because the same method performs worse in our implementation than in the original study, we attribute the gap mainly
 to input handling (frame timing of the phone videos, skin masking of pre-cropped regions, region fusion and the
 video-level estimator) rather than physiology; these are tested first on AiPEX-dev with cross-validation

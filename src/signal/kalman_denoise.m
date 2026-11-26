@@ -24,7 +24,8 @@ end
 
 [N, C] = size(x);
 % steady-state gain alpha of a first-order smoother with -3 dB at Cutoff
-w = 2 * pi * min(opts.Cutoff, 0.45 * fs) / fs;
+% README 4.4: -3 dB at min(Cutoff, 0.8*fs/2) (was 0.45*fs; changed 26 Nov 2026, CHANGELOG_PARAMS.md)
+w = 2 * pi * min(opts.Cutoff, 0.4 * fs) / fs;
 c = 4 - 2 * cos(w);
 beta  = (c - sqrt(c^2 - 4)) / 2;
 alpha = 1 - beta;
