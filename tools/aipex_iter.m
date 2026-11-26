@@ -36,14 +36,14 @@ addpath(fullfile(root, 'config')); addpath(genpath(fullfile(root, 'src')));
 C = struct('pixels', 'skin', 'fuse', 'rgb', 'regions', ["forehead" "leftcheek" "rightcheek"], ...
     'topK', 3, 'kalman', true, 'method', 'POS', 'windowSec', 10, 'videoEst', 'avgspec', ...
     'harmonic', 0, 'posWindowSec', 1.6, 'detrendLambda', 100, 'filterOrder', 4, 'hrBand', [0.7 3.0], ...
-    'viterbiLambda', 0.1, 'cvSeed', 2027, 'SetBest', false, ...
-    'TraceRoot', "D:\SPCup Data\work\aipex_iter\traces", 'TraceRoot2', "D:\SPCup Data\work\aipex_iter\traces2");
+    'viterbiLambda', 0.1, 'motionGamma', 0, 'motionBeta', 0.5, 'cvSeed', 2027, 'SetBest', false, ...
+    'TraceRoot', "D:\SPCup Data\work\aipex_iter\traces", 'TraceRoot2', "D:\SPCup Data\work\aipex_iter\traces2", 'TraceRoot3', "D:\SPCup Data\work\aipex_iter\traces3");
 diffTxt = strings(0);
 for k = 1:2:numel(varargin)
     name = varargin{k};
     if ~isfield(C, name), error('aipex_iter:opt', 'Unknown option %s', name); end
     C.(name) = varargin{k+1};
-    if ~ismember(name, ["SetBest" "TraceRoot" "TraceRoot2"]), diffTxt(end+1) = name + "=" + string(join(string(varargin{k+1}), '|')); end %#ok<AGROW>
+    if ~ismember(name, ["SetBest" "TraceRoot" "TraceRoot2" "TraceRoot3"]), diffTxt(end+1) = name + "=" + string(join(string(varargin{k+1}), '|')); end %#ok<AGROW>
 end
 cfg = getConfig('hrWindowSec', C.windowSec, 'posWindowSec', C.posWindowSec, ...
     'detrendLambda', C.detrendLambda, 'filterOrder', C.filterOrder, 'hrBand', C.hrBand);
@@ -68,6 +68,10 @@ end
 est = NaN(nV, 1);
 for i = 1:nV
     S = load(fullfile(C.TraceRoot, country(i) + "_" + video(i) + ".mat"), 'R');
+    if C.motionGamma > 0                          % ladder 13: crop motion (aipex_cache_dev3)
+        S3 = load(fullfile(C.TraceRoot3, country(i) + "_" + video(i) + ".mat"), 'M');
+        for r = fieldnames(S3.M)', S.R.(r{1}).motion = S3.M.(r{1}); end
+    end
     if ismember(C.pixels, {'trim', 'tex'})        % ladder 12: extra pixel statistics (aipex_cache_dev2)
         S2 = load(fullfile(C.TraceRoot2, country(i) + "_" + video(i) + ".mat"), 'R2');
         for r = fieldnames(S2.R2)'
@@ -145,7 +149,7 @@ regs = C.regions;
 N = min(arrayfun(@(r) numel(R.(r).t), regs));
 t = R.(regs(1)).t(1:N);
 fs = 1 / median(diff(t));
-X = struct(); W = struct();
+X = struct(); W = struct(); Mo = struct();
 for r = regs
     Q = R.(r);
     switch C.pixels
@@ -156,6 +160,7 @@ for r = regs
         otherwise, error('aipex_iter:pixels', 'Unknown pixels option "%s"', C.pixels);
     end
     X.(r) = x; W.(r) = w;
+    if isfield(Q, 'motion'), Mo.(r) = Q.motion(1:N, :); else, Mo.(r) = []; end
 end
 switch C.fuse
     case 'rgb'                                   % pixel-weighted mean RGB -> one trace
@@ -171,7 +176,7 @@ switch C.fuse
         if strcmp(C.videoEst, 'viterbi')         % per-window fusion -> Viterbi -> conf-weighted mean
             Pw = {}; Sw = [];
             for r = regs
-                spec = traceSpectrum(X.(r), W.(r), fs, C, cfg);
+                spec = traceSpectrum(X.(r), W.(r), fs, C, cfg, Mo.(r));
                 if isempty(spec), continue; end
                 Pn = spec.P ./ sum(spec.P, 2);
                 Pw{end+1} = Pn; %#ok<AGROW>
@@ -192,7 +197,7 @@ switch C.fuse
         end
         Ps = []; snr = [];
         for r = regs
-            spec = traceSpectrum(X.(r), W.(r), fs, C, cfg);
+            spec = traceSpectrum(X.(r), W.(r), fs, C, cfg, Mo.(r));
             if isempty(spec), continue; end
             m = mean(spec.P ./ sum(spec.P, 2), 1);
             Ps = [Ps; m]; snr(end+1) = snrDb(m, spec.f); %#ok<AGROW>
@@ -207,7 +212,8 @@ switch C.fuse
 end
 end
 
-function spec = traceSpectrum(x, npix, fs, C, cfg)
+function spec = traceSpectrum(x, npix, fs, C, cfg, mo)
+if nargin < 6, mo = []; end
 ok = all(isfinite(x), 2);
 if nnz(ok) < C.windowSec * fs, spec = []; return; end
 x = fillmissing(x, 'linear', 'EndValues', 'nearest');
@@ -215,6 +221,17 @@ if C.kalman, x = kalman_denoise(x, fs, Npix=npix); end
 p  = rgbToPulse(x, fs, C.method, cfg);
 pf = preprocessPulse(p, fs, cfg);
 [~, hrWin, s] = estimateHR(pf, fs, cfg);
+if C.motionGamma > 0 && ~isempty(mo)              % README 4.8.2: attenuate where the crop's own motion has power
+    nfft = s.nfft; F = (0:nfft/2)' * fs / nfft; band = F >= cfg.hrBand(1) & F <= cfg.hrBand(2);
+    L = s.winLen; hw = hann(L);
+    for w = 1:size(s.P, 1)
+        seg = mo(s.starts(w):s.starts(w)+L-1, :); seg = seg - mean(seg, 1);
+        Pm = sum(abs(fft(seg .* hw, nfft)).^2, 2); Pm = Pm(1:nfft/2+1); Pm = Pm(band);
+        Mn = Pm / max(max(Pm), eps);
+        att = 1 - C.motionGamma * Mn .* (Mn > C.motionBeta);
+        s.P(w, :) = s.P(w, :) .* att';
+    end
+end
 spec = struct('f', s.f, 'P', s.P, 'hrWin', hrWin, 'avg', false);
 end
 
