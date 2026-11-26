@@ -14,6 +14,7 @@ npm run dev            # http://localhost:5173
 npm test               # Vitest, synthetic data only
 npx tsc --noEmit -p .  # type check
 npm run build          # dist/ + precaching service worker (offline PWA)
+npm run e2e            # Playwright smoke test against the running dev server (system Chrome, fake camera, synthetic face clip)
 ```
 
 Camera access needs `localhost` or HTTPS.
@@ -60,7 +61,8 @@ tunable, are in `NOTES_FOR_OPERATOR.md`.
 ## Known limitations
 
 - Interim TS core; parity with MATLAB / fvcore is pending golden vectors (`shared/golden/` does not exist yet).
-- Not implemented: L* pigmentation sub-clusters (C2 vitiligo), temporal-variance texture mask, Playwright smoke test.
+- Not implemented: L* pigmentation sub-clusters (C2 vitiligo), temporal-variance texture mask.
+- The Playwright smoke test (`e2e/smoke.spec.ts`) uses the system Chrome (`channel: 'chrome'`) and the already running dev server; it is skipped when no server answers. It checks that the app loads, the camera path runs on a synthetic-face fake camera and shows a status, no request goes to another host, and no page error occurs. It does not check HR (MediaPipe on a drawn face reports LOW_COVERAGE).
 - `TraceFrame.subpatches` is a web extension of the 11.1 contract (optional field) pending approval. At IOD ≈ 70 px most sub-patch families are below `npix_min` and pool into their parents, so sub-patch fusion mainly matters for larger faces or locally corrupted patches. The 1 Hz analysis can take ≈140 ms in the worker.
 - Frame rejection on large inter-frame motion and patch erosion are implemented but off (no benefit on synthetic data).
 - Motion suppression cannot win against a motion peak more than ≈3× the pulse peak in every patch (γ = 0.7 floor).
