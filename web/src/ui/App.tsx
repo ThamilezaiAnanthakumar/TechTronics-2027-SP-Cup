@@ -8,6 +8,8 @@ import { STATUS_COLOR, drawBvp, drawOverlay, drawSpectrogram, type SpecColumn } 
 
 /** Provisional C1 threshold on whole-frame mean luma (0..255); to move into shared/config.default.json. */
 const LOW_LIGHT_FRAME_LUMA = 40;
+/** Display-only hold of the last reliable HR through short quality dips (s). */
+const HOLD_S = 10;
 
 const SPEC_SPAN_S = 60;
 const STATUS_TEXT: Record<string, string> = {
@@ -54,6 +56,9 @@ export default function App() {
   const [logs, setLogs] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [frameY, setFrameY] = useState(NaN);
+  const lastGood = useRef<{ hr: number; t: number } | null>(null);
+  const confEma = useRef(0);
+  const confRow = useRef<HrRow | null>(null);
   // whole-frame brightness, sampled once per second while running (C1 warning)
   useEffect(() => {
     if (!running) { setFrameY(NaN); return; }
@@ -108,6 +113,7 @@ export default function App() {
         log('Input ended');
       },
       onReset() {
+        lastGood.current = null; confEma.current = 0; confRow.current = null;
         cols.current = [];
         rowsRef.current = [];
         lastTick.current = null;
@@ -186,7 +192,18 @@ export default function App() {
   const last = rows.length ? rows[rows.length - 1] : null;
   const shownStatus = tick && (tick.status === 'NO_FACE' || tick.status === 'LOW_COVERAGE') ? tick.status : last?.status ?? tick?.status ?? null;
   const hrOk = last && (last.status === 'OK' || last.status === 'MASKED') && Number.isFinite(last.hr_bpm) && shownStatus === last.status;
-  const conf = hrOk ? last!.confidence : 0;
+  // Display only (CSV keeps NaN): hold the last reliable HR for HOLD_S seconds through
+  // short LOW_SNR / LOW_COVERAGE dips, greyed and labelled; never through NO_FACE.
+  if (hrOk) lastGood.current = { hr: last!.hr_bpm, t: last!.time_s };
+  const heldAge = !hrOk && lastGood.current && last && shownStatus !== 'NO_FACE' ? last.time_s - lastGood.current.t : Infinity;
+  const held = heldAge <= HOLD_S;
+  const hrShown = hrOk ? last!.hr_bpm : held ? lastGood.current!.hr : NaN;
+  // confidence bar: exponential smoothing (~3 s) of the per-second confidence, display only
+  if (last && last !== confRow.current) {
+    confRow.current = last;
+    confEma.current = confEma.current + 0.3 * ((hrOk ? last.confidence : 0) - confEma.current);
+  }
+  const conf = running ? confEma.current : 0;
   // C1 warning from whole-frame brightness (scene light), not skin brightness:
   // skin luma also depends on skin tone, so a skin threshold would flag darker
   // skin as "low light" (C2 bias). LOW_LIGHT_FRAME_LUMA is a provisional web-only
@@ -257,8 +274,8 @@ export default function App() {
 
         <section className="card hr-card">
           <div className="hr">
-            <span className="value">{hrOk ? last!.hr_bpm.toFixed(0) : '--'}</span>
-            <span className="unit">bpm</span>
+            <span className="value" style={held ? { opacity: 0.45 } : undefined}>{Number.isFinite(hrShown) ? hrShown.toFixed(0) : '--'}</span>
+            <span className="unit">bpm{held ? ` · held, ${heldAge.toFixed(0)} s ago` : ''}</span>
           </div>
           {shownStatus && (
             <div className="badge" style={{ background: STATUS_COLOR[shownStatus] }}>
@@ -267,7 +284,7 @@ export default function App() {
             </div>
           )}
           <div className="conf">
-            <div className="conf-label"><span>Confidence</span><span>{hrOk ? `${(100 * conf).toFixed(0)} %` : '--'}</span></div>
+            <div className="conf-label"><span>Confidence</span><span>{running && (hrOk || held) ? `${(100 * conf).toFixed(0)} %` : '--'}</span></div>
             <div className="bar"><div style={{ width: `${100 * conf}%`, background: STATUS_COLOR[shownStatus ?? 'WARMUP'] }} /></div>
           </div>
           <dl className="facts">

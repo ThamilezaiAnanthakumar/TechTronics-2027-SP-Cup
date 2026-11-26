@@ -8,6 +8,7 @@ import type { CoreTick, HrRow } from './core/types';
 import type { FrameInfo } from './front/frontEnd';
 import { landmarksBox, type Box, type Landmarks } from './front/geometry';
 import type { FromWorker, ToWorker } from './front/messages';
+import { OneEuroLandmarks } from './front/oneEuro';
 
 export type Source = 'live' | 'file';
 
@@ -47,6 +48,7 @@ export class Pipeline {
   private lastLm: Landmarks | null = null;
   private lockTimer: number | null = null;
   private lastDiagLog = 0;
+  private lmFilter = new OneEuroLandmarks(1.0, 0.02, 1.0);
   lock: CameraLock = { ae_locked: false, awb_locked: false, focus_locked: false, fps_fixed: false, settings: {} };
   fileName = '';
 
@@ -424,7 +426,14 @@ export class Pipeline {
     });
     const boxes = all.map(landmarksBox);
     const { idx, status } = this.chooseTarget(boxes, tS);
-    const lm = idx >= 0 ? all[idx] : null;
+    // 1-Euro smoothing of the target's landmarks (README 4.2); reset when the target is lost
+    let lm: Float32Array | null = null;
+    if (idx >= 0) {
+      if (status === 2) this.lmFilter.reset();
+      lm = this.lmFilter.filter(all[idx], this.video.videoWidth || 640, this.video.videoHeight || 480, tS);
+    } else {
+      this.lmFilter.reset();
+    }
     this.lastFaces = boxes;
     this.lastTarget = idx;
     this.lastLm = lm;
