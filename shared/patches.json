@@ -1,0 +1,34 @@
+{
+  "version": 1,
+  "source": "README Section 4.2. MediaPipe polygons: Li et al. 2026, Table 2 (468-landmark indices, used exactly as published, vertex order as listed). Canonical rectangles: Section 4.2(a), units of inter-ocular distance (IOD), origin at the eye-centre midpoint, +x toward the subject's left eye, +y down.",
+  "groups": { "A": 0, "B": 1, "C": 2 },
+  "subpatch_split": {
+    "rows": 2,
+    "cols": 2,
+    "rule": "Each patch is split 2x2 in its own canonical frame into sub-patches (fusion units), numbered id*4 + row*2 + col. Web MVP (interim) fuses at patch level and does not split yet."
+  },
+  "patches": [
+    { "id": 0, "code": "G",   "name": "glabella",        "group": "A", "mediapipe": [151,108,107,55,8,285,336,337],
+      "canonical": { "cx": 0.00,  "cy": -0.15, "w": 0.30, "h": 0.22 } },
+    { "id": 1, "code": "ND",  "name": "nasal_dorsum",    "group": "A", "mediapipe": [8,55,193,122,196,3,195,248,419,351,417,285],
+      "canonical": { "cx": 0.00,  "cy": 0.22,  "w": 0.18, "h": 0.28 } },
+    { "id": 2, "code": "LM",  "name": "malar_L",         "group": "A", "mediapipe": [126,100,118,117,116,123,147,187,205,203,129,209],
+      "canonical": { "cx": 0.55,  "cy": 0.45,  "w": 0.32, "h": 0.28 } },
+    { "id": 3, "code": "RM",  "name": "malar_R",         "group": "A", "mediapipe": [355,429,358,423,425,411,376,352,345,346,347,329],
+      "canonical": { "cx": -0.55, "cy": 0.45,  "w": 0.32, "h": 0.28 } },
+    { "id": 4, "code": "MF",  "name": "forehead_medial", "group": "B", "mediapipe": [10,109,108,151,337,338],
+      "canonical": { "cx": 0.00,  "cy": -0.55, "w": 0.50, "h": 0.28 } },
+    { "id": 5, "code": "LLF", "name": "forehead_lat_L",  "group": "B", "mediapipe": [67,103,104,105,66,107,108,109],
+      "canonical": { "cx": 0.45,  "cy": -0.55, "w": 0.32, "h": 0.28 } },
+    { "id": 6, "code": "RLF", "name": "forehead_lat_R",  "group": "B", "mediapipe": [297,338,337,336,296,334,333,332],
+      "canonical": { "cx": -0.45, "cy": -0.55, "w": 0.32, "h": 0.28 } },
+    { "id": 7, "code": "P",   "name": "philtrum",        "group": "C", "mediapipe": [2,97,98,203,186,185,40,39,37,0,267,269,270,409,410,423,327,326],
+      "canonical": { "cx": 0.00,  "cy": 0.85,  "w": 0.30, "h": 0.12 } },
+    { "id": 8, "code": "LSM", "name": "submalar_L",      "group": "C", "mediapipe": [203,205,187,147,177,215,138,172,136,135,212,186],
+      "canonical": { "cx": 0.50,  "cy": 0.85,  "w": 0.28, "h": 0.25 } },
+    { "id": 9, "code": "RSM", "name": "submalar_R",      "group": "C", "mediapipe": [423,410,432,364,365,397,367,435,401,376,411,425],
+      "canonical": { "cx": -0.50, "cy": 0.85,  "w": 0.28, "h": 0.25 } }
+  ],
+  "skin_model_patches": ["G", "LM", "RM"],
+  "masked_rule_patches": ["P", "LSM", "RSM", "LM", "RM"]
+}
