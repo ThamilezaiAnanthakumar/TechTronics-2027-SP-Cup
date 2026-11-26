@@ -66,6 +66,21 @@ export interface LocalConfig {
   // ---- front end (README 4.3, web implementation choices) ----
   /** Erode each patch polygon by this many pixels at its edges (0 = off). */
   patch_erode_px: number;
+  /** Emit 2x2 sub-patches (README 4.2) in TraceFrame.subpatches. */
+  subpatches: boolean;
+
+  // ---- core: sub-patch fusion units and README 4.4 adaptive pooling ----
+  /** Use the sub-patches as fusion units when the frames carry them. */
+  subpatch_fusion: boolean;
+  /**
+   * Pool a 2x2 family into its parent when a sub-patch's SNR stays below this
+   * (dB) ... -3 rather than 0: at 0 dB ordinary noisy sub-patches pooled their
+   * family, re-mixing a flickering corner into the parent (synthetic test:
+   * 7/30 vs 30/30 good outputs).
+   */
+  pool_snr_db: number;
+  /** ... for this long (s); also the time all four must be fine before splitting again. README: 5 s. */
+  pool_hold_s: number;
 
   // ---- target selection (README 4.1 / 11.2.4 appearance gate) ----
   /** Reject a re-acquisition candidate whose colour-histogram Bhattacharyya distance exceeds this. */
@@ -86,6 +101,10 @@ export const LOCAL_CONFIG: LocalConfig = {
   motion_patch_level: true,
   motion_reject_step: 0,
   patch_erode_px: 0,
+  subpatches: true,
+  subpatch_fusion: true,
+  pool_snr_db: -3,
+  pool_hold_s: 5,
   appearance_max_bhattacharyya: 0.5,
   appearance_ema: 0.05,
 };

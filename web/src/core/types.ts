@@ -17,6 +17,12 @@ export interface TraceFrame {
   motion: [number, number, number, number]; // dx, dy (/IOD), dscale, droll (rad)
   n_patches: number;
   patches: TracePatch[];
+  /**
+   * Optional 2x2 sub-patches (README 4.2), id = patch_id * 4 + row * 2 + col
+   * (shared/patches.json subpatch_split). Web extension of the 11.1 contract,
+   * pending operator approval; readers that ignore it see the 10 patches as before.
+   */
+  subpatches?: TracePatch[];
 }
 
 export type Status = 'OK' | 'WARMUP' | 'NO_FACE' | 'MASKED' | 'LOW_SNR' | 'LOW_COVERAGE';
@@ -27,12 +33,14 @@ export interface HrRow {
   hr_bpm: number; // NaN unless OK / MASKED
   confidence: number;
   status: Status;
-  n_patches_used: number;
-  top_patches: number[];
+  n_patches_used: number; // fusion units used (patches or sub-patches)
+  top_patches: number[];  // parent patch ids of the used units, by weight
 }
 
 export interface PatchQuality {
-  id: number;
+  id: number;       // fusion-unit id: patch id, or sub-patch id (patch * 4 + q) when sub
+  parent: number;   // patch id
+  sub: boolean;
   coverage: number;
   snr_db: number;
   peak_bpm: number;

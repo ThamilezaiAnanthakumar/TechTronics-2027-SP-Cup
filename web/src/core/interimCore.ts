@@ -14,7 +14,7 @@ import { fillNaN, largeMotionFrames, motionSpectrum, type MotionSpectrum } from 
 import {
   FixedLagViterbi, bandBins, harmonicSum, hrGrid, peakProminence, refineBpm, sampleOnGrid, spectralSnr,
 } from './tracker';
-import type { CoreTick, HrRow, PatchQuality, SignalCore, Status, TraceFrame } from './types';
+import type { CoreTick, HrRow, PatchQuality, SignalCore, Status, TraceFrame, TracePatch } from './types';
 
 interface PendingStep {
   time_s: number;
@@ -25,7 +25,9 @@ interface PendingStep {
 }
 
 interface PatchResult {
-  id: number;
+  id: number;      // fusion-unit id: patch id, or sub-patch id (patch * 4 + q) when sub = true
+  parent: number;  // patch id
+  sub: boolean;
   group: number;
   coverage: number;
   snrDb: number;
@@ -34,6 +36,9 @@ interface PatchResult {
   seg: Float64Array | null;
   weight: number;
 }
+
+/** README 4.4 adaptive pooling state of one patch's 2x2 family. */
+interface PoolState { pooled: boolean; lowSnrSince: number | null; goodSince: number | null }
 
 const MASK_IDS = new Set(PATCHES.filter((p) => MASKED_RULE_CODES.includes(p.code)).map((p) => p.id));
 
@@ -64,6 +69,7 @@ export class InterimCore implements SignalCore {
   private nextTick = 0;
   private viterbi: FixedLagViterbi;
   private pending = new Map<number, PendingStep>();
+  private pool: PoolState[] = PATCHES.map(() => ({ pooled: false, lowSnrSince: null, goodSince: null }));
   readonly grid: Float64Array;
 
   constructor(private cfg: FvConfig = CONFIG, private local: LocalConfig = LOCAL_CONFIG) {
@@ -76,6 +82,7 @@ export class InterimCore implements SignalCore {
     this.t0 = null;
     this.viterbi.reset();
     this.pending.clear();
+    this.pool = PATCHES.map(() => ({ pooled: false, lowSnrSince: null, goodSince: null }));
   }
 
   push(frame: TraceFrame): CoreTick[] {
@@ -152,7 +159,18 @@ export class InterimCore implements SignalCore {
       const reject = largeMotionFrames(frames, this.local.motion_reject_step);
       motion = motionSpectrum(frames, tf, tg, Lw, fsProc, cfg, this.local);
       const pAtt = this.local.motion_patch_level ? motion.atten : null;
-      results = PATCHES.map((def) => this.analysePatch(def.id, def.groupIndex, frames, tf, tg, Lw, fsMeasured, fsProc, reject, pAtt));
+      const analyse = (id: number, parent: number, sub: boolean, group: number, pick: (f: TraceFrame) => TracePatch | undefined) =>
+        this.analysePatch(id, parent, sub, group, pick, frames, tf, tg, Lw, fsMeasured, fsProc, reject, pAtt);
+      const useSubs = this.local.subpatch_fusion && frames.some((f) => f.subpatches?.length);
+      for (const def of PATCHES) {
+        const parent = analyse(def.id, def.id, false, def.groupIndex, (f) => f.patches.find((q) => q.id === def.id));
+        if (!useSubs) { results.push(parent); continue; }
+        const subs = [0, 1, 2, 3].map((q) => {
+          const sid = 4 * def.id + q;
+          return analyse(sid, def.id, true, def.groupIndex, (f) => f.subpatches?.find((x) => x.id === sid));
+        });
+        results.push(...(this.updatePool(def.id, subs, T) ? [parent] : subs));
+      }
 
       // MASKED (README 4.3.5): in the last second, >= masked_fraction of the
       // group-C + malar patches invalid in most face frames.
@@ -211,7 +229,7 @@ export class InterimCore implements SignalCore {
     const stepIdx = this.viterbi.steps;
     this.pending.set(stepIdx, {
       time_s: T, status, Hg: informative ? Hg : null,
-      nUsed: informative ? used.length : 0, top: informative ? used.map((r) => r.id) : [],
+      nUsed: informative ? used.length : 0, top: informative ? [...new Set(used.map((r) => r.parent))] : [],
     });
     const vs = this.viterbi.step(informative ? Hg : null);
     const row = vs.decided ? this.makeRow(vs.decided.step, vs.decided.state) ?? undefined : undefined;
@@ -223,7 +241,7 @@ export class InterimCore implements SignalCore {
       if (mx > 0) for (let i = 0; i < Hg.length; i++) emission[i] = Hg[i] / mx;
     }
     const patches: PatchQuality[] = results.map((r) => ({
-      id: r.id, coverage: r.coverage, snr_db: r.snrDb, peak_bpm: r.peakBpm,
+      id: r.id, parent: r.parent, sub: r.sub, coverage: r.coverage, snr_db: r.snrDb, peak_bpm: r.peakBpm,
       weight: used.includes(r) ? r.weight / wSum : 0, used: used.includes(r),
     }));
     return {
@@ -233,16 +251,35 @@ export class InterimCore implements SignalCore {
     };
   }
 
+  /**
+   * README 4.4 adaptive spatial pooling. The family is merged into its parent
+   * patch as soon as a sub-patch fails coverage (its npix is below npix_min in
+   * too many frames: distant face, low resolution, partial occlusion), or after
+   * a sub-patch's SNR stays below pool_snr_db for pool_hold_s. It is split
+   * again after all four sub-patches have been fine for pool_hold_s.
+   */
+  private updatePool(p: number, subs: PatchResult[], T: number): boolean {
+    const st = this.pool[p], L = this.local, cfg = this.cfg;
+    const covBad = subs.some((r) => r.coverage < cfg.coverage_min);
+    const snrBad = subs.some((r) => !(r.snrDb >= L.pool_snr_db));
+    if (snrBad) st.lowSnrSince ??= T; else st.lowSnrSince = null;
+    if (!covBad && !snrBad) st.goodSince ??= T; else st.goodSince = null;
+    if (!st.pooled && (covBad || (st.lowSnrSince !== null && T - st.lowSnrSince >= L.pool_hold_s))) st.pooled = true;
+    else if (st.pooled && st.goodSince !== null && T - st.goodSince >= L.pool_hold_s) st.pooled = false;
+    return st.pooled;
+  }
+
   private analysePatch(
-    id: number, group: number, frames: TraceFrame[], tf: number[], tg: Float64Array,
+    id: number, parent: number, sub: boolean, group: number, pick: (f: TraceFrame) => TracePatch | undefined,
+    frames: TraceFrame[], tf: number[], tg: Float64Array,
     Lw: number, fsMeasured: number, fsProc: number, reject: boolean[], att: Float64Array | null,
   ): PatchResult {
     const cfg = this.cfg;
-    const res: PatchResult = { id, group, coverage: 0, snrDb: -Infinity, peakBpm: NaN, Pn: null, seg: null, weight: 0 };
+    const res: PatchResult = { id, parent, sub, group, coverage: 0, snrDb: -Infinity, peakBpm: NaN, Pn: null, seg: null, weight: 0 };
     const x: number[][] = [], np: number[] = [];
     for (let i = 0; i < frames.length; i++) {
       const f = frames[i];
-      const p = reject[i] ? undefined : f.patches.find((q) => q.id === id);
+      const p = reject[i] ? undefined : pick(f);
       if (p && p.valid && f.face_status > 0) { x.push([...p.rgb_mean]); np.push(p.npix); }
       else { x.push([NaN, NaN, NaN]); np.push(0); }
     }

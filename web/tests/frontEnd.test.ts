@@ -86,6 +86,13 @@ describe('FrontEnd -> InterimCore on synthetic frames', () => {
       expect(p.skin_ratio).toBeGreaterThan(0.6);
       expect(p.skin_ratio).toBeLessThan(0.9); // texture exclusion removed ~15 %
     }
+    // 2x2 sub-patches (README 4.2): ids patch*4+q, pixels partition the patch
+    expect(f.subpatches!.map((s) => s.id).sort((a, b) => a - b)).toEqual([...Array(40).keys()]);
+    for (const p of f.patches) {
+      const subs = f.subpatches!.filter((s) => s.id >> 2 === p.id);
+      expect(subs.reduce((n, s) => n + s.npix, 0)).toBe(p.npix);
+      for (const s of subs) expect(s.group).toBe(p.group);
+    }
     const lab = srgbToLab(SKIN[0], SKIN[1], SKIN[2]);
     expect(Math.abs(last!.info.itaDeg - ita(lab[0], lab[2]))).toBeLessThan(2);
     const ok = rows.filter((r) => r.status === 'OK');

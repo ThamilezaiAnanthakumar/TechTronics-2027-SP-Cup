@@ -47,7 +47,12 @@ export function drawOverlay(
   g.strokeRect(b.x * W, b.y * H, b.w * W, b.h * H);
 
   const polys = patchPolygons(lm, W, H);
-  const weights = new Map(tick?.patches.map((p) => [p.id, p]) ?? []);
+  // fusion units may be sub-patches: aggregate their weights per parent patch
+  const weights = new Map<number, { weight: number; used: boolean }>();
+  for (const p of tick?.patches ?? []) {
+    const w = weights.get(p.parent) ?? { weight: 0, used: false };
+    weights.set(p.parent, { weight: w.weight + p.weight, used: w.used || p.used });
+  }
   PATCHES.forEach((def, i) => {
     const poly = polys[i];
     g.beginPath();

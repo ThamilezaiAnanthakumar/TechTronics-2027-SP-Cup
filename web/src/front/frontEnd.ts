@@ -86,6 +86,8 @@ export class FrontEnd {
   private lastT: number | null = null;
   private skinEma: number[] = [];
   private occluded: boolean[] = [];
+  private subEma: number[] = [];
+  private subOcc: boolean[] = [];
   private prevPose: ReturnType<typeof eyePose> | null = null;
   private itaEma = NaN;
 
@@ -100,6 +102,8 @@ export class FrontEnd {
     this.lastT = null;
     this.skinEma = PATCHES.map(() => 1);
     this.occluded = PATCHES.map(() => false);
+    this.subEma = new Array(4 * PATCHES.length).fill(1);
+    this.subOcc = new Array(4 * PATCHES.length).fill(false);
     this.prevPose = null;
     this.itaEma = NaN;
   }
@@ -147,6 +151,8 @@ export class FrontEnd {
     let lumaSum = 0, lumaN = 0;
     let itaR = 0, itaG = 0, itaB = 0, itaN = 0;
     const patches: TracePatch[] = [];
+    const subs: TracePatch[] | undefined = this.local.subpatches ? [] : undefined;
+    const cr = Math.cos(pose.roll), sr = Math.sin(pose.roll);
 
     const specY = cfg.specular_y_frac * 255, sat = cfg.saturation_level;
     const [cb0, cb1] = cfg.skin_sanity_cb, [cr0, cr1] = cfg.skin_sanity_cr;
@@ -199,6 +205,7 @@ export class FrontEnd {
         id: def.id, group: def.groupIndex, cluster: 0,
         rgb_mean: valid ? rgb : [NaN, NaN, NaN], npix: sel.length, valid: valid ? 1 : 0, skin_ratio: ratio,
       });
+      if (subs) this.subPatches(subs, def.id, def.groupIndex, pi, d, idx, sel, cw, cr, sr, npixMin, a);
       info.valid[pi] = valid;
       info.npix[pi] = sel.length;
       info.skinRatio[pi] = ratio;
@@ -223,9 +230,48 @@ export class FrontEnd {
     info.itaDeg = this.itaEma;
 
     return {
-      frame: { t_s, face_status: faceStatus, track_quality: 1, motion, n_patches: patches.length, patches },
+      frame: { t_s, face_status: faceStatus, track_quality: 1, motion, n_patches: patches.length, patches, ...(subs ? { subpatches: subs } : {}) },
       info,
     };
+  }
+
+  /**
+   * 2x2 sub-patches (README 4.2, patches.json subpatch_split): the patch's pixels
+   * are split at their centroid along the eye-line axes (the patch's own
+   * canonical frame), sub-id = id * 4 + row * 2 + col (row 0 = upper, col 0 =
+   * image-left after removing roll). Selection (skin, specular, texture) is the
+   * patch's; occlusion EMA / hysteresis and npix_min apply per sub-patch.
+   */
+  private subPatches(
+    out: TracePatch[], id: number, group: number, pi: number, d: Uint8ClampedArray,
+    idx: Int32Array, sel: Int32Array, cw: number, cr: number, sr: number, npixMin: number, a: number,
+  ) {
+    // centroid of the patch (all rasterised pixels)
+    let mx = 0, my = 0;
+    for (const i of idx) { mx += i % cw; my += (i - (i % cw)) / cw; }
+    mx /= Math.max(1, idx.length); my /= Math.max(1, idx.length);
+    const quad = (i: number) => {
+      const x = (i % cw) - mx, y = (i - (i % cw)) / cw - my;
+      const u = cr * x + sr * y, v = -sr * x + cr * y;
+      return (v < 0 ? 0 : 2) + (u < 0 ? 0 : 1);
+    };
+    const tot = [0, 0, 0, 0];
+    for (const i of idx) tot[quad(i)]++;
+    const parts: number[][] = [[], [], [], []];
+    for (const i of sel) parts[quad(i)].push(i);
+    for (let q = 0; q < 4; q++) {
+      const k = 4 * pi + q;
+      const ratio = tot[q] > 0 ? parts[q].length / tot[q] : 0;
+      this.subEma[k] = (1 - a) * this.subEma[k] + a * ratio;
+      if (this.subOcc[k] && this.subEma[k] > this.cfg.occlusion_off) this.subOcc[k] = false;
+      else if (!this.subOcc[k] && this.subEma[k] < this.cfg.occlusion_on) this.subOcc[k] = true;
+      const rgb = trimmedMeanRgb(d, parts[q], this.cfg.trimmed_mean_frac);
+      const valid = !this.subOcc[k] && parts[q].length >= npixMin && Number.isFinite(rgb[0]);
+      out.push({
+        id: 4 * id + q, group, cluster: 0, rgb_mean: valid ? rgb : [NaN, NaN, NaN],
+        npix: parts[q].length, valid: valid ? 1 : 0, skin_ratio: ratio,
+      });
+    }
   }
 }
 

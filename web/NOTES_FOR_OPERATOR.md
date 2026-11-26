@@ -21,6 +21,10 @@ Nothing under `shared/` was changed.
 | `motion_patch_level` | true | apply the attenuation to each patch spectrum before SNR / peak (see 2c) |
 | `motion_reject_step` | 0 (off) | frame rejection on large inter-frame motion; no measurable effect on synthetic jerks, kept off |
 | `patch_erode_px` | 0 | front end: erode patch polygons (see section 3) |
+| `subpatches` | true | front end emits 2×2 sub-patches in `TraceFrame.subpatches` (see section 5) |
+| `subpatch_fusion` | true | core uses sub-patches as fusion units, with adaptive pooling |
+| `pool_snr_db` | −3 | pool a family when a sub-patch SNR stays below this … |
+| `pool_hold_s` | 5 | … for this long (README 4.4: 5 s); also the time before splitting again |
 | `appearance_max_bhattacharyya` | 0.5 | README 4.1 appearance gate threshold (see section 4) |
 | `appearance_ema` | 0.05 | appearance model update per second while the target is tracked |
 
@@ -108,3 +112,33 @@ Synthetic distances: same face 0.04, same face with −15 % exposure 0.27, three
 other skin tones 0.86–0.91 → threshold 0.5. **Untested on real faces**; two
 people with similar skin tone under the same light will likely pass the gate,
 as with any colour-only gate. The README gives no threshold; please confirm.
+
+## 5. Sub-patches (README 4.2) and adaptive pooling (README 4.4)
+
+- **Contract extension (needs approval).** Sub-patches travel in a new optional
+  field `TraceFrame.subpatches` (ids `patch_id*4 + row*2 + col`, as in
+  `shared/patches.json` `subpatch_split`); `patches` still carries the 10
+  parents, so other readers are unaffected. Please ratify or change this in
+  `shared/traceframe.schema.json` (which does not exist yet).
+- Split: each patch's pixels are divided at their centroid along the eye-line
+  axes (roll removed). Selection masks are the patch's; occlusion EMA /
+  hysteresis and `npix_min` apply per sub-patch.
+- Pooling rule as implemented: a family is merged into its parent as soon as
+  one sub-patch fails coverage (below `npix_min` in too many frames — this is
+  the README's "median npix below a threshold"), or after one sub-patch's SNR
+  stays below `pool_snr_db` for 5 s; it splits again after all four have been
+  fine for 5 s. `top_patches` in the CSV-side rows lists parent ids;
+  `n_patches_used` counts fusion units.
+- `pool_snr_db` = −3 rather than 0: at 0 dB, ordinary noisy sub-patches pooled
+  their family and re-mixed a flickering corner into the parent (synthetic:
+  7/30 vs 30/30 good outputs). An alternative you may prefer: pool only the
+  weak sub-patches with each other instead of the whole family.
+- Effect (synthetic): a colour flicker at 1.6 Hz in one corner of every patch
+  captures patch-level fusion (0/30 outputs within 5 bpm) but not sub-patch
+  fusion (30/30). On the uniform synthetic face at IOD 70 px most families are
+  pooled (several sub-patches are below 80 px), so results equal patch level
+  (85/90 vs 85/90 still, 85/90 vs 86/90 jittered). The 1 Hz analysis now takes
+  up to ≈140 ms in the worker (50 analyses per tick) vs ≈40–80 ms before.
+- Small-face numbers after the MASKED fix (same harness, IOD 40 px, 3 seeds):
+  39/90 still and 30/90 with jitter (0/90 before, when 31 of the 90 outputs were
+  wrongly MASKED, which also zeroes the group-C weights).
