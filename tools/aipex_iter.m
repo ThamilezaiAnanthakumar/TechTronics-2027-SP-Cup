@@ -37,13 +37,13 @@ C = struct('pixels', 'skin', 'fuse', 'rgb', 'regions', ["forehead" "leftcheek" "
     'topK', 3, 'kalman', true, 'method', 'POS', 'windowSec', 10, 'videoEst', 'avgspec', ...
     'harmonic', 0, 'posWindowSec', 1.6, 'detrendLambda', 100, 'filterOrder', 4, 'hrBand', [0.7 3.0], ...
     'viterbiLambda', 0.1, 'cvSeed', 2027, 'SetBest', false, ...
-    'TraceRoot', "D:\SPCup Data\work\aipex_iter\traces");
+    'TraceRoot', "D:\SPCup Data\work\aipex_iter\traces", 'TraceRoot2', "D:\SPCup Data\work\aipex_iter\traces2");
 diffTxt = strings(0);
 for k = 1:2:numel(varargin)
     name = varargin{k};
     if ~isfield(C, name), error('aipex_iter:opt', 'Unknown option %s', name); end
     C.(name) = varargin{k+1};
-    if ~ismember(name, ["SetBest" "TraceRoot"]), diffTxt(end+1) = name + "=" + string(join(string(varargin{k+1}), '|')); end %#ok<AGROW>
+    if ~ismember(name, ["SetBest" "TraceRoot" "TraceRoot2"]), diffTxt(end+1) = name + "=" + string(join(string(varargin{k+1}), '|')); end %#ok<AGROW>
 end
 cfg = getConfig('hrWindowSec', C.windowSec, 'posWindowSec', C.posWindowSec, ...
     'detrendLambda', C.detrendLambda, 'filterOrder', C.filterOrder, 'hrBand', C.hrBand);
@@ -68,6 +68,14 @@ end
 est = NaN(nV, 1);
 for i = 1:nV
     S = load(fullfile(C.TraceRoot, country(i) + "_" + video(i) + ".mat"), 'R');
+    if ismember(C.pixels, {'trim', 'tex'})        % ladder 12: extra pixel statistics (aipex_cache_dev2)
+        S2 = load(fullfile(C.TraceRoot2, country(i) + "_" + video(i) + ".mat"), 'R2');
+        for r = fieldnames(S2.R2)'
+            S.R.(r{1}).rgbTrim = S2.R2.(r{1}).rgbTrim;
+            S.R.(r{1}).rgbTex = S2.R2.(r{1}).rgbTex;
+            S.R.(r{1}).npixTex = S2.R2.(r{1}).npixTex;
+        end
+    end
     est(i) = videoEstimate(S.R, C, cfg);
 end
 
@@ -140,8 +148,13 @@ fs = 1 / median(diff(t));
 X = struct(); W = struct();
 for r = regs
     Q = R.(r);
-    if strcmp(C.pixels, 'skin'), x = Q.rgbSkin(1:N, :); w = Q.npix(1:N);
-    else, x = Q.rgbAll(1:N, :); w = repmat(Q.nAll, N, 1); end
+    switch C.pixels
+        case 'skin', x = Q.rgbSkin(1:N, :); w = Q.npix(1:N);
+        case 'all',  x = Q.rgbAll(1:N, :);  w = repmat(Q.nAll, N, 1);
+        case 'trim', x = Q.rgbTrim(1:N, :); w = Q.npix(1:N);       % skin, no specular, 10/10 trimmed mean
+        case 'tex',  x = Q.rgbTex(1:N, :);  w = Q.npixTex(1:N);    % + top-15 % gradient pixels removed
+        otherwise, error('aipex_iter:pixels', 'Unknown pixels option "%s"', C.pixels);
+    end
     X.(r) = x; W.(r) = w;
 end
 switch C.fuse
