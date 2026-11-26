@@ -51,6 +51,8 @@ export interface CoreTick {
   trackBpm: number;        // current best (non-lagged) Viterbi state, bpm
   bvp: Float64Array;       // fused BVP of the newest window (z-scored)
   row?: HrRow;             // lagged fixed-lag decision, if one was made this tick
+  /** README 4.8.2: band-passed head motion RMS, its dominant rate, and whether suppression acted. */
+  motion?: { rms: number; peakBpm: number; active: boolean };
 }
 
 /**

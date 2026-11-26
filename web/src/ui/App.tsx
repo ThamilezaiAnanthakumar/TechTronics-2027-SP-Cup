@@ -298,6 +298,8 @@ export default function App() {
             <dd>{last && hrOk ? `${last.n_patches_used} of 10` : '--'}{nOcc ? ` · ${nOcc} occluded` : ''}</dd>
             <dt>Skin model</dt>
             <dd>{info ? (info.skinModelFitted ? 'adapted to this face' : 'learning (first 3 s)') : '--'}</dd>
+            <dt>Head motion</dt>
+            <dd>{tick?.motion ? `${(100 * tick.motion.rms).toFixed(1)} % IOD${tick.motion.active ? ` · suppressing ~${tick.motion.peakBpm.toFixed(0)}/min` : ''}` : '--'}</dd>
             <dt>Frame rate</dt>
             <dd>{stats.fps ? `${stats.fps.toFixed(1)} fps · ${stats.procMs.toFixed(1)} ms/frame` : '--'}</dd>
           </dl>

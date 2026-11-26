@@ -9,6 +9,8 @@
 import { CONFIG, MASKED_RULE_CODES, PATCHES, type FvConfig } from '../config';
 import { bandpass, chrom, detrendSmoothnessPriors, median, pos, powerSpectrum, zscore, type Rgb } from './dsp';
 import { kalmanDenoise } from './kalman';
+import { LOCAL_CONFIG, type LocalConfig } from '../localConfig';
+import { fillNaN, largeMotionFrames, motionSpectrum, type MotionSpectrum } from './motion';
 import {
   FixedLagViterbi, bandBins, harmonicSum, hrGrid, peakProminence, refineBpm, sampleOnGrid, spectralSnr,
 } from './tracker';
@@ -56,20 +58,6 @@ export function resampleUniform(t: number[], v: number[], tg: Float64Array, maxG
   return out;
 }
 
-/** Fill NaNs by linear interpolation (hold at the ends). */
-function fillNaN(x: Float64Array): Float64Array {
-  const y = Float64Array.from(x);
-  let last = -1;
-  for (let i = 0; i < y.length; i++) {
-    if (!Number.isFinite(y[i])) continue;
-    if (last < 0) for (let k = 0; k < i; k++) y[k] = y[i];
-    else if (i - last > 1) for (let k = last + 1; k < i; k++) y[k] = y[last] + ((y[i] - y[last]) * (k - last)) / (i - last);
-    last = i;
-  }
-  if (last >= 0) for (let k = last + 1; k < y.length; k++) y[k] = y[last];
-  return y;
-}
-
 export class InterimCore implements SignalCore {
   private frames: TraceFrame[] = [];
   private t0: number | null = null;
@@ -78,7 +66,7 @@ export class InterimCore implements SignalCore {
   private pending = new Map<number, PendingStep>();
   readonly grid: Float64Array;
 
-  constructor(private cfg: FvConfig = CONFIG) {
+  constructor(private cfg: FvConfig = CONFIG, private local: LocalConfig = LOCAL_CONFIG) {
     this.grid = hrGrid(cfg);
     this.viterbi = new FixedLagViterbi(this.grid, cfg, Math.round(cfg.viterbi_lag_s / cfg.step_s), cfg.step_s);
   }
@@ -154,13 +142,17 @@ export class InterimCore implements SignalCore {
 
     let results: PatchResult[] = [];
     let masked = false;
+    let motion: MotionSpectrum | null = null;
     if (faceRecent && fsOk) {
       const padAvail = Math.max(0, Math.min(cfg.pad_s, elapsed - cfg.window_s));
       const n = Math.floor((cfg.window_s + padAvail) * fsProc);
       const Lw = Math.round(cfg.window_s * fsProc);
       const tg = Float64Array.from({ length: n }, (_, i) => T - (n - 1 - i) / fsProc);
       const tf = frames.map((f) => f.t_s);
-      results = PATCHES.map((def) => this.analysePatch(def.id, def.groupIndex, frames, tf, tg, Lw, fsMeasured, fsProc));
+      const reject = largeMotionFrames(frames, this.local.motion_reject_step);
+      motion = motionSpectrum(frames, tf, tg, Lw, fsProc, cfg, this.local);
+      const pAtt = this.local.motion_patch_level ? motion.atten : null;
+      results = PATCHES.map((def) => this.analysePatch(def.id, def.groupIndex, frames, tf, tg, Lw, fsMeasured, fsProc, reject, pAtt));
 
       // MASKED (README 4.3.5): in the last second, >= masked_fraction of the
       // group-C + malar patches invalid in most face frames.
@@ -199,7 +191,11 @@ export class InterimCore implements SignalCore {
       const Pf = new Float64Array(len);
       for (const r of used) for (let k = 0; k < len; k++) Pf[k] += (r.weight / wSum) * r.Pn![k];
       const df = fsProc / ((len - 1) * 2);
+      // README 4.8.2 motion suppression (web-local options, see localConfig.ts)
+      const att = !this.local.motion_patch_level && motion?.atten && motion.atten.length === len ? motion.atten : null;
+      if (att && this.local.motion_before_harmonic) for (let k = 0; k < len; k++) Pf[k] *= att[k];
       const H = harmonicSum(Pf, df, cfg.harmonic_alpha, (cfg.harmonic_nyquist_frac * fsProc) / 2);
+      if (att && !this.local.motion_before_harmonic) for (let k = 0; k < len; k++) H[k] *= att[k];
       Hg = sampleOnGrid(H, df, this.grid);
       bvp = this.fuseBvp(used, wSum);
     } else {
@@ -230,18 +226,20 @@ export class InterimCore implements SignalCore {
     return {
       t_s: T, status: elapsed < cfg.window_s + cfg.viterbi_lag_s && status === 'OK' ? 'WARMUP' : status,
       fs_proc: fsProc, patches, gridBpm: this.grid, emission, trackBpm: this.grid[vs.current], bvp, row,
+      motion: motion ? { rms: motion.rms, peakBpm: 60 * motion.peakHz, active: !!motion.atten } : undefined,
     };
   }
 
   private analysePatch(
     id: number, group: number, frames: TraceFrame[], tf: number[], tg: Float64Array,
-    Lw: number, fsMeasured: number, fsProc: number,
+    Lw: number, fsMeasured: number, fsProc: number, reject: boolean[], att: Float64Array | null,
   ): PatchResult {
     const cfg = this.cfg;
     const res: PatchResult = { id, group, coverage: 0, snrDb: -Infinity, peakBpm: NaN, Pn: null, seg: null, weight: 0 };
     const x: number[][] = [], np: number[] = [];
-    for (const f of frames) {
-      const p = f.patches.find((q) => q.id === id);
+    for (let i = 0; i < frames.length; i++) {
+      const f = frames[i];
+      const p = reject[i] ? undefined : f.patches.find((q) => q.id === id);
       if (p && p.valid && f.face_status > 0) { x.push([...p.rgb_mean]); np.push(p.npix); }
       else { x.push([NaN, NaN, NaN]); np.push(0); }
     }
@@ -268,6 +266,7 @@ export class InterimCore implements SignalCore {
     }
     const seg = zscore(pulse.slice(n - Lw));
     const { P, nfft } = powerSpectrum(seg, cfg.nfft);
+    if (att && att.length === P.length) for (let k = 0; k < P.length; k++) P[k] *= att[k];
     const df = fsProc / nfft;
     const [k0, k1] = bandBins(cfg.band_hz, df, P.length);
     let e = 0;
