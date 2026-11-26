@@ -59,6 +59,19 @@ cfg.nfftMin       = 2^14;       % zero-padding for finer frequency resolution
 cfg.methods       = {'GREEN','CHROM','POS'};
 cfg.roiSet        = {'forehead','leftCheek','rightCheek','combined'};
 
+% ---------------- Integrated pipeline (run_ubfc2) ----------------
+% Face module = Sulojan's process_video (RetinaFace + tracker + skin/occlusion),
+% configured by its own JSON. Signal side uses the fields above.
+cfg.faceConfig   = fullfile(repoRoot, 'config', 'face_config.json');
+cfg.traceDir     = fullfile(repoRoot, 'outputs', 'traces', 'ubfc2_integrated');
+cfg.subjects     = {};          % {} = every UBFC subject found; e.g. {'subject1','subject3'}
+cfg.resampleFs   = 30;          % Hz, uniform grid for the signal chain
+cfg.minValidFrac = 0.8;         % window HR kept only if >= this share of frames are valid
+% Thamil's kalman_denoise, applied to the per-frame RGB means before resampling
+cfg.kalman       = struct('cutoff', 4);   % Hz, -3 dB point of the steady-state filter
+cfg.denoiseSet   = {'none', 'kalman'};    % variants compared in run_ubfc2
+cfg.intRois      = {'forehead', 'lcheek', 'rcheek', 'face'};  % 'face' = Sulojan's rgb_face
+
 % ---------------- Constraint tests (Section 7 hook) ----------------
 cfg.degrade = struct('enabled', false, ...
                      'lowLightGain', [], ...   % e.g. 0.2

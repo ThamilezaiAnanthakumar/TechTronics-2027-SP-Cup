@@ -2,13 +2,20 @@ function m = computeMetrics(hrEst, hrRef)
 %COMPUTEMETRICS Agreement metrics between paired HR vectors (bpm).
 %   m = computeMetrics(hrEst, hrRef)
 %   m.MAE, m.RMSE (bpm), m.MAPE (%), m.r, m.p (Pearson),
-%   m.bias, m.loaLow, m.loaHigh (Bland-Altman, d = est - ref), m.nWindows
+%   m.bias, m.loaLow, m.loaHigh (Bland-Altman, d = est - ref), m.nWindows,
+%   m.SUC3, m.SUC5 (% of windows with |d| < 3 / 5 bpm),
+%   m.coverage (% of windows with a finite estimate).
+%   Pairs where either value is NaN (e.g. windows rejected for too many
+%   lost / occluded frames) are left out of every metric.
 
 hrEst = hrEst(:); hrRef = hrRef(:);
 if numel(hrEst) ~= numel(hrRef)
     error('computeMetrics:length', 'Length mismatch: est %d vs ref %d.', ...
         numel(hrEst), numel(hrRef));
 end
+nAll = numel(hrEst);
+ok = isfinite(hrEst) & isfinite(hrRef);
+hrEst = hrEst(ok); hrRef = hrRef(ok);
 d = hrEst - hrRef;
 m.MAE  = mean(abs(d));
 m.RMSE = sqrt(mean(d.^2));
@@ -23,4 +30,7 @@ m.bias    = mean(d);
 m.loaLow  = m.bias - 1.96 * std(d);
 m.loaHigh = m.bias + 1.96 * std(d);
 m.nWindows = numel(d);
+m.SUC3 = 100 * mean(abs(d) < 3);
+m.SUC5 = 100 * mean(abs(d) < 5);
+m.coverage = 100 * numel(d) / max(nAll, 1);
 end
