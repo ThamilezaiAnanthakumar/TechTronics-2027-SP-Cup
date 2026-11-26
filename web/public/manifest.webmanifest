@@ -1,0 +1,11 @@
+{
+  "name": "FaceVitals — on-device heart rate",
+  "short_name": "FaceVitals",
+  "description": "Camera-based heart rate (rPPG). Runs fully on this device; video never leaves it.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#0f1419",
+  "theme_color": "#0f1419",
+  "icons": [{ "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }]
+}
