@@ -105,12 +105,36 @@ export class Pipeline {
     this.video.muted = true;
     await this.video.play();
     this.lock = { ae_locked: false, awb_locked: false, focus_locked: false, fps_fixed: false, settings: {} };
-    const s = track.getSettings();
-    this.ev.onLog(`Camera: ${track.label || 'camera'} ${s.width}x${s.height} @ ${s.frameRate ?? '?'} fps`);
+    const s = track.getSettings() as Record<string, unknown>;
+    this.ev.onLog(`Camera: ${track.label || 'camera'} ${s.width}x${s.height} @ ${s.frameRate ?? '?'} fps, exposureMode ${s.exposureMode ?? '?'}, exposureTime ${s.exposureTime ?? '?'}`);
+    // Webcam drivers can keep a manual exposure from an earlier session; start from auto.
+    const caps = (track.getCapabilities?.() ?? {}) as Record<string, unknown>;
+    const has = (k: string, v: string) => Array.isArray(caps[k]) && (caps[k] as string[]).includes(v);
+    const auto: Record<string, unknown> = {};
+    if (has('exposureMode', 'continuous')) auto.exposureMode = 'continuous';
+    if (has('whiteBalanceMode', 'continuous')) auto.whiteBalanceMode = 'continuous';
+    if (has('focusMode', 'continuous')) auto.focusMode = 'continuous';
+    if (Object.keys(auto).length) {
+      try {
+        await track.applyConstraints({ advanced: [auto as MediaTrackConstraintSet] });
+        this.ev.onLog(`Camera reset to auto (${Object.keys(auto).join(', ')})`);
+      } catch (e) {
+        this.ev.onLog(`Reset to auto failed: ${(e as Error).message}`);
+      }
+    }
+    await new Promise((r) => window.setTimeout(r, 1000));   // let auto exposure settle
+    const yAuto = this.frameLuma(true);
     try {
       await track.applyConstraints({ frameRate: { exact: fps } });
-      this.lock.fps_fixed = true;
-      this.ev.onLog(`Frame rate fixed at ${fps} fps (applyConstraints exact)`);
+      await new Promise((r) => window.setTimeout(r, 1000));
+      const yFixed = this.frameLuma(true);
+      this.ev.onLog(`Frame rate fixed at ${fps} fps (exact); frame luma ${yAuto.toFixed(0)} -> ${yFixed.toFixed(0)}`);
+      if (Number.isFinite(yAuto) && Number.isFinite(yFixed) && yFixed < 0.75 * yAuto) {
+        await track.applyConstraints({ frameRate: { ideal: fps, max: fps } });
+        this.ev.onLog('Fixed frame rate darkened the image; relaxed to ideal (timestamps stay exact)');
+      } else {
+        this.lock.fps_fixed = true;
+      }
     } catch (e) {
       this.ev.onLog(`Fixed frame rate not supported: ${(e as Error).name}`);
     }
