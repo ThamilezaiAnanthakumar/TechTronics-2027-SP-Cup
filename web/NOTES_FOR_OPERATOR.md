@@ -3,6 +3,13 @@
 Decisions that need your approval. All numbers below come from **synthetic**
 tests (Vitest, `web/tests/`); none has been checked on real video.
 
+**Decisions needed (short list)**
+1. Move the web-local tunables in section 1 into `shared/config.default.json` (or reject them).
+2. Motion suppression deviations from the literal README 4.8.2 text (section 2 a–c), and whether γ = 0.7 is enough (2d).
+3. `npix_min_qvga` = 20 makes distant faces (IOD ≈ 40 px at VGA) mostly invalid (section 3).
+4. Appearance-gate threshold 0.5 (section 4; README gives none).
+5. `TraceFrame.subpatches` contract extension and the pooling rule as implemented (section 5).
+
 ## 1. Web-local tunables — pending move to `shared/config.default.json`
 
 They live in `web/src/localConfig.ts` (marked "pending move to shared/").
