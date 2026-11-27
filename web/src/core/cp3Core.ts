@@ -20,10 +20,24 @@
 //
 // Parameters are the CP3 freeze, not shared/config.default.json (which still
 // holds the interim values: order 4, detrend, nfft 16384, ...).
+//
+// Online HR tracking of the 1 Hz output on the fused in-band spectrum of each
+// window (cp3Analyse() stays argmax = frozen CP3), so a reading never changes
+// by 5 bpm or more between consecutive outputs:
+//   'viterbi' (default)  fixed-lag Viterbi, symmetric 4.99 bpm per second of
+//                        step, lambda 0.1 / bpm, lag 3 s (viterbiTrack.ts, port
+//                        of src/signal/viterbiHR.m)
+//   'troika'             TROIKA peak tracking, no lag (troikaTrack.ts, port of
+//                        src/track/troikaTrack.m)
+//   'off'                raw argmax (exact MATLAB snrFusionHR window HRs)
 import { CONFIG, MASKED_RULE_CODES, PATCHES } from '../config';
 import { fftInPlace, hann, std, zscore } from './dsp';
 import { kalmanDenoise } from './kalman';
 import { hrGrid, sampleOnGrid } from './tracker';
+import { TroikaTracker } from './troikaTrack';
+import { ViterbiTracker } from './viterbiTrack';
+
+export type TrackerKind = 'viterbi' | 'troika' | 'off';
 import type { CoreTick, HrRow, PatchQuality, SignalCore, Status, TraceFrame } from './types';
 
 /** CP3 frozen parameters (round1_freeze.json, snrFusionHR.m defaults). */
@@ -420,16 +434,65 @@ const MASK_IDS = new Set(PATCHES.filter((p) => MASKED_RULE_CODES.includes(p.code
  *   OK            otherwise
  * Confidence = share of the fused in-band power within +-0.1 Hz of the fused
  * peak (in [0, 1]; a clean sinusoid gives ~0.9, a flat spectrum ~0.1).
+ *
+ * HR tracking (constructor option `tracker`, default 'viterbi'): the reported
+ * HR is the tracked peak of the same fused spectrum and the confidence is taken
+ * around it. With 'viterbi' the row of window T is released at T + 3 s (fixed
+ * lag; finish() flushes the rest); 'troika' and 'off' emit without lag. The
+ * tracker is fed every window after warm-up (NO_FACE / no spectrum = gap: more
+ * than 10 s without a spectrum restarts it) and is reset with the core (new
+ * target). Status codes are those of the window; never OK without an HR.
  */
+interface PendingRow {
+  T: number;
+  status: Status;
+  used: PatchQuality[];
+  fused: Float64Array | null;
+  fb: Float64Array;
+  fed: boolean;      // given to the Viterbi tracker (else released without a decision)
+  hr: number;        // decided HR (NaN until decided)
+  decided: boolean;
+}
+
+/** Share of the fused in-band power within +-0.1 Hz of hr (W.confidence around a given HR). */
+function confidenceAt(fused: Float64Array, fb: Float64Array, hr: number): number {
+  let num = 0, den = 0;
+  for (let k = 0; k < fb.length; k++) { den += fused[k]; if (Math.abs(60 * fb[k] - hr) <= 60 * CP3.peakHalfHz) num += fused[k]; }
+  return den > 0 ? Math.max(0, Math.min(1, num / den)) : 0;
+}
+
+const makeRow = (T: number, status: Status, hr = NaN, conf = 0, used: PatchQuality[] = []): HrRow => ({
+  time_s: T, hr_bpm: hr, confidence: conf, status, n_patches_used: used.length,
+  top_patches: [...used].sort((p, q) => q.weight - p.weight).map((p) => p.parent),
+});
+
 export class Cp3Core implements SignalCore {
   private frames: TraceFrame[] = [];
   private t0: number | null = null;
   private nextTick = 0;
+  private queue: PendingRow[] = [];
   readonly grid = hrGrid(CONFIG);
+  readonly tracker: TrackerKind;
+  readonly troika: TroikaTracker | null;
+  readonly viterbi: ViterbiTracker | null;
+
+  constructor(opts: { tracker?: TrackerKind } = {}) {
+    this.tracker = opts.tracker ?? 'viterbi';
+    this.troika = this.tracker === 'troika' ? new TroikaTracker() : null;
+    this.viterbi = this.tracker === 'viterbi' ? new ViterbiTracker({ stepS: CP3.step }) : null;
+  }
+
+  /** Output lag of the HR rows (s). */
+  get lagS(): number {
+    return this.viterbi ? this.viterbi.lagSteps * CP3.step : 0;
+  }
 
   reset() {
     this.frames = [];
     this.t0 = null;
+    this.queue = [];
+    this.troika?.reset();
+    this.viterbi?.reset();
   }
 
   push(frame: TraceFrame): CoreTick[] {
@@ -452,7 +515,48 @@ export class Cp3Core implements SignalCore {
   }
 
   finish(): HrRow[] {
-    return []; // rows are emitted without lag
+    if (!this.viterbi) return []; // rows are emitted without lag
+    this.applyDecisions(this.viterbi.flush());
+    for (const q of this.queue) q.decided = true;
+    return this.release();
+  }
+
+  private applyDecisions(ds: { tS: number; hr: number }[]) {
+    for (const d of ds) {
+      const q = this.queue.find((e) => e.fed && e.T === d.tS);
+      if (q) { q.hr = d.hr; q.decided = true; }
+    }
+  }
+
+  /** Rows of the decided windows at the head of the queue, oldest first. */
+  private release(): HrRow[] {
+    const out: HrRow[] = [];
+    while (this.queue.length && this.queue[0].decided) {
+      const q = this.queue.shift()!;
+      const okStatus = q.status === 'OK' || q.status === 'MASKED';
+      const ok = okStatus && Number.isFinite(q.hr) && !!q.fused;
+      const status: Status = okStatus && !ok ? 'LOW_COVERAGE' : q.status;
+      out.push(makeRow(q.T, status, ok ? q.hr : NaN, ok ? confidenceAt(q.fused!, q.fb, q.hr) : 0, ok ? q.used : []));
+    }
+    return out;
+  }
+
+  /** Viterbi path: queue the window, feed the tracker, attach the released rows. */
+  private viterbiRows(tick: CoreTick, status: Status, fused: Float64Array | null, fb: Float64Array, used: PatchQuality[], feed: boolean) {
+    const v = this.viterbi!;
+    const q: PendingRow = { T: tick.t_s, status, used, fused, fb, fed: false, hr: NaN, decided: false };
+    this.queue.push(q);
+    if (feed) {
+      const ds = v.update(fused, fb, tick.t_s);
+      q.fed = v.lastStepT === tick.t_s;
+      this.applyDecisions(ds);
+    }
+    if (!q.fed) q.decided = true;
+    // windows the tracker no longer holds (dropped by a restart) cannot be decided any more
+    for (const e of this.queue) if (e.fed && !e.decided && !(e.T >= v.firstStepT)) e.decided = true;
+    tick.trackBpm = v.current();
+    const rows = this.release();
+    if (rows.length) { tick.rows = rows; tick.row = rows[rows.length - 1]; }
   }
 
   private tick(T: number): CoreTick {
@@ -463,13 +567,13 @@ export class Cp3Core implements SignalCore {
       t_s: T, status: 'WARMUP', fs_proc: CP3.fs, patches: [], gridBpm: this.grid,
       emission: new Float64Array(this.grid.length), trackBpm: NaN, bvp: new Float64Array(0),
     };
-    const row = (status: Status, hr = NaN, conf = 0, used: PatchQuality[] = []): HrRow => ({
-      time_s: T, hr_bpm: hr, confidence: conf, status, n_patches_used: used.length,
-      top_patches: [...used].sort((p, q) => q.weight - p.weight).map((p) => p.parent),
-    });
     if (elapsed < CP3.win - 1e-9 || !faceRecent) {
       tick.status = faceRecent ? 'WARMUP' : 'NO_FACE';
-      tick.row = row(tick.status);
+      const noFace = tick.status === 'NO_FACE';
+      // no spectrum: a gap for the tracker (more than 10 s without one restarts it)
+      if (this.troika && noFace) tick.troika = { rawBpm: NaN, ...this.troika.update(null, [], T) };
+      if (this.viterbi) this.viterbiRows(tick, tick.status, null, new Float64Array(0), [], noFace);
+      else tick.row = makeRow(T, tick.status);
       return tick;
     }
 
@@ -486,6 +590,13 @@ export class Cp3Core implements SignalCore {
     }
     const res = cp3Analyse(t, X, np, [T - CP3.win / 2]);
     const W = res.windows[0];
+    // window HR: raw argmax (MATLAB snrFusionHR) or the TROIKA-tracked peak of the same fused spectrum
+    let hr = W.hr, conf = W.confidence;
+    if (this.troika) {
+      const o = this.troika.update(W.fused, res.fb, T);
+      tick.troika = { rawBpm: W.hr, ...o };
+      if (W.fused) { hr = o.hr; conf = confidenceAt(W.fused, res.fb, hr); }
+    }
 
     const snrSum = W.patches.reduce((s, p) => s + (p.used ? p.snr : 0), 0);
     tick.patches = PATCHES.map((def, r) => {
@@ -506,7 +617,7 @@ export class Cp3Core implements SignalCore {
     const masked = recent.length > 0 && maskedFrames / recent.length > 0.5;
 
     let status: Status;
-    if (!Number.isFinite(W.hr)) status = 'LOW_COVERAGE';
+    if (!Number.isFinite(hr)) status = 'LOW_COVERAGE';
     else if (!used.some((p) => p.snr_db > 0)) status = 'LOW_SNR';
     else status = masked ? 'MASKED' : 'OK';
     tick.status = status;
@@ -519,11 +630,15 @@ export class Cp3Core implements SignalCore {
       let mx = 0;
       for (const v of Hg) mx = Math.max(mx, v);
       if (mx > 0) for (let i = 0; i < Hg.length; i++) tick.emission[i] = Hg[i] / mx;
-      tick.trackBpm = W.hr;
+      tick.trackBpm = hr;
     }
     if (W.bvp) tick.bvp = W.bvp;
+    if (this.viterbi) {
+      this.viterbiRows(tick, status, W.fused, res.fb, used, true);
+      return tick;
+    }
     const ok = status === 'OK' || status === 'MASKED';
-    tick.row = row(status, ok ? W.hr : NaN, ok ? W.confidence : 0, ok ? used : []);
+    tick.row = makeRow(T, status, ok ? hr : NaN, ok ? conf : 0, ok ? used : []);
     return tick;
   }
 }

@@ -4,8 +4,8 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { PATCHES } from '../src/config';
-import { Cp3Core } from '../src/core/cp3Core';
-import type { HrRow, TraceFrame } from '../src/core/types';
+import { Cp3Core, type TrackerKind } from '../src/core/cp3Core';
+import { tickRows, type HrRow, type TraceFrame } from '../src/core/types';
 import { mulberry32, syntheticRgb } from './synth';
 
 const T0 = 1000;
@@ -27,10 +27,10 @@ function frames(bpm: number, seconds: number, fps: number, faceGap?: [number, nu
   });
 }
 
-function run(fr: TraceFrame[]) {
-  const core = new Cp3Core();
+function run(fr: TraceFrame[], tracker: TrackerKind = 'viterbi') {
+  const core = new Cp3Core({ tracker });
   const rows: HrRow[] = [];
-  for (const f of fr) for (const tk of core.push(f)) if (tk.row) rows.push(tk.row);
+  for (const f of fr) for (const tk of core.push(f)) rows.push(...tickRows(tk));
   rows.push(...core.finish());
   return rows;
 }
@@ -54,6 +54,25 @@ describe('Cp3Core end to end on synthetic TraceFrames', () => {
       }
       for (const r of rows) if (r.status !== 'OK' && r.status !== 'MASKED') expect(Number.isNaN(r.hr_bpm)).toBe(true);
       for (let i = 1; i < rows.length; i++) expect(rows[i].time_s - rows[i - 1].time_s).toBeCloseTo(1, 6);
+      // Viterbi tracking (default): consecutive OK readings never change by 5 bpm or more
+      for (let i = 1; i < rows.length; i++) {
+        if (rows[i].status === 'OK' && rows[i - 1].status === 'OK') expect(Math.abs(rows[i].hr_bpm - rows[i - 1].hr_bpm)).toBeLessThan(5);
+      }
+    });
+  }
+
+  for (const tracker of ['viterbi', 'troika'] as const) {
+    it(`${tracker} tracking stays within 1 bpm of the raw argmax rows on a clean 72 bpm pulse (same times and statuses)`, () => {
+      const fr = frames(72, 40, 30);
+      const raw = run(fr, 'off'), trk = run(fr, tracker);
+      expect(trk.map((r) => r.time_s)).toEqual(raw.map((r) => r.time_s));
+      let d = 0;
+      for (let i = 0; i < raw.length; i++) {
+        expect(trk[i].status).toBe(raw[i].status);
+        if (raw[i].status === 'OK') d = Math.max(d, Math.abs(trk[i].hr_bpm - raw[i].hr_bpm));
+      }
+      console.log(`[cp3 ${tracker}] max |tracked - argmax| ${d.toFixed(3)} bpm over ${raw.filter((r) => r.status === 'OK').length} OK rows`);
+      expect(d).toBeLessThanOrEqual(1);
     });
   }
 
@@ -82,7 +101,7 @@ describe('Cp3Core online vs MATLAB offline (UBFC DEV fixtures)', () => {
           npix: J.npix[i][q], valid: J.valid[i][q], skin_ratio: 0.8,
         })),
       }));
-      const rows = run(fr);
+      const rows = run(fr, 'off'); // raw argmax = MATLAB snrFusionHR window HR
       const d: number[] = [];
       let lowSnr = 0, okN = 0;
       for (const r of rows) {

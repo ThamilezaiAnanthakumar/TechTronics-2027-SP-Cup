@@ -58,10 +58,16 @@ export interface CoreTick {
   emission: Float64Array;  // harmonic-summed fused spectrum on the grid, max-normalised
   trackBpm: number;        // current best (non-lagged) Viterbi state, bpm
   bvp: Float64Array;       // fused BVP of the newest window (z-scored)
-  row?: HrRow;             // lagged fixed-lag decision, if one was made this tick
+  row?: HrRow;             // lagged fixed-lag decision, if one was made this tick (the newest of `rows`)
+  rows?: HrRow[];          // all rows released by this tick, oldest first (when more than `row`)
   /** README 4.8.2: band-passed head motion RMS, its dominant rate, and whether suppression acted. */
   motion?: { rms: number; peakBpm: number; active: boolean };
+  /** CP3 with TROIKA tracking: raw argmax HR of the window, tracked HR and the tracker action. */
+  troika?: { rawBpm: number; hr: number; action: string };
 }
+
+/** Rows released by a tick, oldest first. */
+export const tickRows = (t: CoreTick): HrRow[] => t.rows ?? (t.row ? [t.row] : []);
 
 /**
  * Signal core interface. The interim TypeScript core implements it now;

@@ -3,9 +3,9 @@
 // Receives ImageBitmaps + target landmarks; emits per-frame info and 1 Hz
 // core ticks. Keeps the TraceFrame log for .tracejsonl export.
 import { CONFIG } from '../config';
-import { Cp3Core } from '../core/cp3Core';
+import { Cp3Core, type TrackerKind } from '../core/cp3Core';
 import { InterimCore } from '../core/interimCore';
-import type { HrRow, SignalCore, TraceFrame } from '../core/types';
+import { tickRows, type HrRow, type SignalCore, type TraceFrame } from '../core/types';
 import { FrontEnd } from './frontEnd';
 import { patchPolygons } from './geometry';
 import type { CoreKind, ToWorker } from './messages';
@@ -20,18 +20,18 @@ let diagN = 0;
 const diag: { bitmapLuma: number; cropLuma: number; size: string; crop: string } = { bitmapLuma: NaN, cropLuma: NaN, size: '', crop: '' };
 let rows: HrRow[] = [];
 
-function makeCore(method: string, kind: CoreKind = 'cp3'): SignalCore {
+function makeCore(method: string, kind: CoreKind = 'cp3', tracker: TrackerKind = 'viterbi'): SignalCore {
   // Default: CP3, the frozen Round-1 chain (cp3Core.ts). The interim core stays
   // selectable; fvcore-WASM will replace this line (README Section 16).
   if (kind === 'interim') return new InterimCore({ ...CONFIG, method });
-  return new Cp3Core();
+  return new Cp3Core({ tracker });
 }
 
 ctx.onmessage = (ev: MessageEvent<ToWorker>) => {
   const m = ev.data;
   if (m.type === 'reset') {
     front = new FrontEnd();
-    core = makeCore(m.method, m.core);
+    core = makeCore(m.method, m.core, m.tracker);
     trace = [];
     rows = [];
     return;
@@ -90,7 +90,7 @@ ctx.onmessage = (ev: MessageEvent<ToWorker>) => {
     const { frame, info } = front.process(img, ox, oy, W, H, img ? lm : null, t_s, img ? faceStatus : 0);
     trace.push(frame);
     const ticks = core.push(frame);
-    for (const tk of ticks) if (tk.row) rows.push(tk.row);
+    for (const tk of ticks) rows.push(...tickRows(tk));
     ctx.postMessage({ type: 'frame', info, procMs: performance.now() - t0, diag: { ...diag } });
     for (const tick of ticks) ctx.postMessage({ type: 'tick', tick });
   }
