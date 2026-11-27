@@ -14,7 +14,7 @@ Where the numbers come from (repository TechTronics-2027-SP-Cup, branch dev)
                      + aipex_paper_baseline.csv (from the dataset's Results_Final_Main.csv)
   Figures            regenerate with tools/make_report_figures.m (MATLAB R2026b)
 
-Open items are marked [TODO: ...] in red in the PDF: author names/affiliation, C1/C2/C5/C6 results,
+Open items are marked [TODO] or TBD in red: UBFC test-split numbers, the constraint table (Table V), repeated-measures LoA, web-vs-MATLAB agreement, contributions of three team members, and three references from README Section 19 still to verify (li2026roi, bondarenko2025roi, tian2026correction).
 AiPEX-dev iteration and the single AiPEX-test run, failure analysis of subjects 15/27/41/49,
 repeated-measures LoA and bootstrap CIs, web-demo validation, three references from README Section 19
 whose full records still need checking (li2026roi, bondarenko2025roi, tian2026correction).

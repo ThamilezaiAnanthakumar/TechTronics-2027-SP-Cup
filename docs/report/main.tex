@@ -1,7 +1,7 @@
-% TechTronics — IEEE SP Cup 2027, Round 1 technical report (DRAFT, 26 Nov 2026)
+% TechTronics — IEEE SP Cup 2027, Round 1 technical report (DRAFT, 27 Nov 2026)
 % Build: pdflatex main && bibtex main && pdflatex main && pdflatex main  (or upload the zip to Overleaf)
-% Rule for this draft: every number comes from a script in the repository; the source table and git
-% hash are given in the comment next to it. Items marked \todo{} are planned or not yet measured.
+% Every number comes from a script in the repository (source table + git hash in the comment next to it).
+% Red \todo{} items are runs still in progress or text still to be written.
 \documentclass[conference]{IEEEtran}
 \usepackage[utf8]{inputenc}
 \usepackage[T1]{fontenc}
@@ -16,11 +16,12 @@
 \usepackage{cite}
 
 \newcommand{\todo}[1]{\textcolor{red}{[TODO: #1]}}
+\newcommand{\tbd}{\textcolor{red}{TBD}}
 \sisetup{detect-weight=true}
 
 \begin{document}
 
-\title{FaceVitals: Quality-Aware Multi-Region Remote Photoplethysmography\\for Heart-Rate Estimation under Real-World Constraints}
+\title{FaceVitals: Quality-Weighted Anatomical Multi-Patch Remote Photoplethysmography\\for Heart-Rate Estimation under Real-World Constraints}
 
 \author{\IEEEauthorblockN{Muftee Mysan, Thamilezai Ananthakumar, Sulojan Rajkumar, Nadha Irshad, Rajinthan Rameshkumar,
 John Praveen, Joshua Kulasingham}
@@ -30,217 +31,200 @@ mufteemysan@gmail.com}}
 \maketitle
 
 \begin{abstract}
-We present FaceVitals, a camera-based heart-rate (HR) pipeline for the IEEE SP Cup 2027 (Round~1).
-A designated target face is detected and tracked, skin pixels inside forehead and cheek regions are averaged
-per frame, the RGB traces are denoised with a pixel-count-weighted Kalman filter, and the pulse is recovered
-with the plane-orthogonal-to-skin (POS) projection followed by smoothness-priors detrending, band-pass
-filtering and windowed spectral peak detection.
-On all 42 subjects of UBFC-rPPG (10\,s windows) the pipeline reaches a pooled mean absolute error (MAE) of
-\SI{2.17}{bpm} (Pearson $r=0.936$; median per-subject MAE \SI{1.19}{bpm}).
-With the RetinaFace-based target tracker, the MAE on six held-out subjects is \SI{1.28}{bpm} at baseline and stays
-within \SI{1.48}{bpm} under simulated low resolution (C4), a bystander face (C3) and a lower-face mask (C7), with
-\SI{100}{\percent} target tracking and no identity switches.
-On the demographically diverse AiPEX dataset our current pipeline is still far from the best published method
-(\SI{18.1}{bpm} vs.\ \SI{5.8}{bpm}); we analyse why and describe the held-out protocol we use to close this gap.
-\todo{update the abstract after the frozen test-split run (28--29 Nov).}
+We present FaceVitals, a classical, fully explainable camera-based heart-rate (HR) pipeline for the IEEE SP Cup 2027.
+MediaPipe landmarks place ten anatomically defined skin patches on the designated face; per patch, skin pixels are
+selected, averaged with a trimmed mean and denoised by a pixel-count-weighted Kalman filter; the pulse is extracted
+with the plane-orthogonal-to-skin (POS) projection, detrended and band-passed; and per 10\,s window the patch spectra
+are fused with weights given by their signal-to-noise ratio (SNR). One frozen configuration is used for all datasets.
+On the UBFC-rPPG development subjects the pooled mean absolute error (MAE) is \SI{1.41}{bpm} with 95\,\% limits of
+agreement of $-4.9$ to $+4.2$\,bpm (\todo{UBFC test split, 30 subjects}). On the demographically diverse AiPEX
+dataset (India and Sierra Leone) the held-out test MAE is \SI{7.16}{bpm} (95\,\% CI 5.2--9.4), down from
+\SIrange{14}{19}{bpm} for our initial pipelines, with no statistically significant difference between skin-tone groups.
+We address all seven competition constraints with the official MATLAB simulation recipes \todo{constraint results}.
 \end{abstract}
 
 \begin{IEEEkeywords}
-remote photoplethysmography, heart rate, POS, Kalman filter, face tracking, skin tone, edge computing
+remote photoplethysmography, heart rate, POS, SNR fusion, Kalman filter, skin tone, edge computing
 \end{IEEEkeywords}
 
-% ------------------------------------------------------------------------------------------------
+% ================================================================================================
 \section{Introduction}
 Remote photoplethysmography (rPPG) estimates the blood-volume pulse from subtle colour changes of facial skin
-recorded by an ordinary camera~\cite{dehaan2013chrom,wang2017pos}. Contact-free HR is attractive for
-telemedicine and screening, but accuracy degrades under low light, low resolution and bandwidth, motion,
-occlusion (masks), multiple people in view, aging skin and darker skin tones~\cite{dasari2021bias}.
-The SP Cup 2027 asks for HR estimation in controlled and uncontrolled conditions with at least two of
-seven constraints (C1--C7) addressed.
+recorded by an ordinary camera~\cite{dehaan2013chrom,wang2017pos}. Contact-free HR is attractive for telemedicine,
+but accuracy degrades under low light, low resolution and bandwidth, motion, occlusion, bystanders, aging skin and
+darker skin tones~\cite{dasari2021bias}. The SP Cup 2027 asks for HR estimation under controlled and uncontrolled
+conditions with constraints C1--C7.
 
-\textbf{Contributions} of this Round-1 submission:
+\textbf{Contributions.}
 \begin{itemize}
-  \item a reproducible MATLAB reference pipeline combining a designated-target face tracker, skin-masked
-        multi-region traces, pixel-count-weighted Kalman denoising and POS/CHROM pulse extraction;
-  \item an evaluation on UBFC-rPPG (all 42 subjects) and AiPEX (88 subjects, India and Sierra Leone) with
-        Bland--Altman agreement statistics, and a frozen dev/test protocol for further development;
-  \item constraint experiments for C3 (bystander), C4 (low resolution) and C7 (mask) using the official
-        MATLAB simulation recipes \todo{C1, C2, C5, C6 results};
-  \item an on-device web demonstrator that runs the same signal chain in the browser without network access
-        \todo{validation pending}.
+  \item A single, frozen, classical pipeline for all datasets: anatomical multi-patch selection~\cite{li2026roi},
+        trimmed-mean skin pooling, pixel-count-weighted Kalman denoising, POS and per-window SNR-weighted spectral fusion.
+  \item A reproducible development protocol: frozen dev/test splits, 5-fold cross-validation, a pre-registered keep/reject
+        rule (paired bootstrap), and an experiment log of every hypothesis (20 on AiPEX).
+  \item Fairness reporting (C2) with bootstrap confidence intervals, a permutation test and a country $\times$ skin-tone
+        cross-tabulation instead of a pass/fail claim.
+  \item A constraint suite C1--C7 built on the official MATLAB recipes, and a designated-target multi-face tracker (C3).
+  \item An on-device web demonstrator running the same signal chain offline in the browser.
 \end{itemize}
 
-% ------------------------------------------------------------------------------------------------
+% ================================================================================================
 \section{Related work}
-Model-based rPPG methods project normalised RGB traces onto pulse-sensitive directions:
-CHROM~\cite{dehaan2013chrom} uses chrominance signals, POS~\cite{wang2017pos} a plane orthogonal to the skin tone.
-Region-of-interest (ROI) choice strongly affects accuracy: forehead and malar regions are generally the most
-reliable, and selective fusion of the best regions outperforms whole-face averaging~\cite{li2026roi,bondarenko2025roi}.
-Physiological constraints on how fast HR can change improve robustness to spurious spectral peaks~\cite{tian2026correction}.
-Dasari \emph{et al.}~\cite{dasari2021bias} released the AiPEX dataset to quantify demographic bias and reported
-the bounded Kalman filter (BKF)~\cite{prakash2018bkf} as the most accurate method on it.
-Agreement with a reference device should be assessed with Bland--Altman analysis rather than correlation
-alone~\cite{altman1983measurement,bland1986statistical}.
+Model-based rPPG projects normalised RGB traces onto pulse-sensitive directions: CHROM~\cite{dehaan2013chrom} uses
+chrominance signals, POS~\cite{wang2017pos} a plane orthogonal to the skin tone. Region choice matters: the glabella,
+nasal dorsum and malar regions are the most robust, and fusing the best few regions beats both a single region and the
+whole face~\cite{li2026roi,bondarenko2025roi}. Constraining how fast HR may change improves robustness to spurious
+peaks~\cite{tian2026correction}. Dasari \emph{et al.}~\cite{dasari2021bias} released AiPEX to quantify demographic bias;
+the bounded Kalman filter (BKF)~\cite{prakash2018bkf} was the most accurate method on it. Agreement with a reference
+device is assessed with Bland--Altman analysis rather than correlation alone~\cite{altman1983measurement,bland1986statistical}.
 \todo{organiser group's prior work (Jeyakumar 2020/2022, Arulselvi 2023); aging skin (Caroppo 2024).}
 
-% ------------------------------------------------------------------------------------------------
+% ================================================================================================
 \section{Method}
-Fig.~\ref{fig:pipeline} shows the pipeline evaluated in this report. All parameters are given in
-Table~\ref{tab:params}.
+Fig.~\ref{fig:pipeline} shows the frozen Round-1 configuration (CP2) and Table~\ref{tab:params} its parameters. The
+pipeline is classical: the only learned components are pretrained face detectors/landmarkers; nothing is trained on HR data.
 
 \begin{figure}[t]
 \centering
-\begin{tikzpicture}[node distance=2.5mm and 2.5mm, font=\scriptsize,
+\begin{tikzpicture}[node distance=2.2mm and 2.2mm, font=\scriptsize,
   box/.style={draw, rounded corners=1.5pt, align=center, minimum height=8mm, text width=17mm, fill=#1!12},
   box/.default=gray, >={Stealth[length=1.6mm]}]
-\node[box=blue] (det) {Face detection\\+ target tracking};
-\node[box=blue, right=of det] (roi) {ROIs, skin mask,\\occlusion};
-\node[box=orange, right=of roi] (kal) {Kalman denoise\\($R_k\propto 1/n_{\mathrm{pix}}$)};
-\node[box=gray, below=5mm of kal] (rs) {Uniform resample\\(30\,Hz), validity};
-\node[box=teal, left=of rs] (pos) {POS / CHROM\\projection};
-\node[box=teal, left=of pos] (pre) {Detrend + band-pass\\(0.7--3\,Hz)};
-\node[box=teal, below=5mm of pre] (fft) {10\,s windows,\\FFT peak};
-\node[box=gray, right=of fft] (met) {Metrics vs.\\contact PPG};
-\draw[->] (det) -- (roi); \draw[->] (roi) -- (kal); \draw[->] (kal) -- (rs);
-\draw[->] (rs) -- (pos); \draw[->] (pos) -- (pre); \draw[->] (pre) -- (fft); \draw[->] (fft) -- (met);
+\node[box=blue] (lm) {Target face +\\478 landmarks};
+\node[box=blue, right=of lm] (patch) {10 anatomical\\patches};
+\node[box=blue, right=of patch] (pix) {Skin, specular,\\trimmed mean};
+\node[box=orange, below=4mm of pix] (kal) {Kalman denoise\\($R_k\propto 1/n_{\mathrm{pix}}$)};
+\node[box=teal, left=of kal] (pos) {POS, detrend,\\BPF order 2};
+\node[box=teal, left=of pos] (snr) {Per-window SNR\\spectral fusion};
+\node[box=gray, below=4mm of snr] (hr) {HR per second,\\confidence, status};
+\node[box=gray, right=of hr] (vid) {Video-level HR\\(one-value refs)};
+\draw[->] (lm) -- (patch); \draw[->] (patch) -- (pix); \draw[->] (pix) -- (kal);
+\draw[->] (kal) -- (pos); \draw[->] (pos) -- (snr); \draw[->] (snr) -- (hr); \draw[->] (hr) -- (vid);
 \end{tikzpicture}
-\caption{Evaluated pipeline. Blue: face module; orange: Kalman denoising; green: signal chain.}
+\caption{Frozen Round-1 pipeline (CP2). Blue: front end (input adapter); orange: denoising; green: signal chain.
+For AiPEX the input adapter uses the three supplied crops as patches instead of the first two boxes.}
 \label{fig:pipeline}
 \end{figure}
 
-\subsection{Target face detection and tracking (C3)}
-Faces are detected with RetinaFace~\cite{deng2020retinaface} (MATLAB \texttt{faceDetector}, CPU) every 10 frames.
-Each face has a Kalman track; the designated target (the largest face at the start, or a user-selected face) is
-followed every frame by KLT feature tracking~\cite{shi1994good} with a similarity transform, re-anchored on detections,
-and re-acquired only near its last position so that bystanders are never adopted. ROI vertices are smoothed with a
-1-Euro filter~\cite{casiez2012oneeuro} (min.\ cutoff \SI{1}{Hz}, $\beta=0.02$). The random seed is fixed per video so
-that the robust (MSAC) transform estimate, and hence every result, is exactly repeatable.
-For the 42-subject UBFC experiment we also report a lighter front end (Viola--Jones detection~\cite{viola2001rapid}
-every 30 frames, KLT in between).
+\subsection{Target face, landmarks and anatomical patches (C3, C7)}
+MediaPipe Face Landmarker~\cite{kartynnik2019facemesh} returns 478 landmarks for up to four faces per frame. The designated
+target is the largest face at the start (or a user-selected face); afterwards the face nearest to the previous target is
+followed and re-acquired only within half a face width, so bystanders are not adopted. Landmarks are smoothed with a
+1-Euro filter~\cite{casiez2012oneeuro} (min.\ cutoff \SI{1}{Hz}, $\beta=0.02$). Ten patches are defined on the landmark
+mesh exactly as published by Li~\emph{et al.}~\cite{li2026roi}: glabella, nasal dorsum, left/right malar (group A), medial and
+lateral forehead (B), philtrum and left/right submalar (C). The multi-face tracker of our face module (RetinaFace~\cite{deng2020retinaface},
+a Kalman track per face, KLT~\cite{shi1994good}) is used for the C3/C4/C7 robustness study in Section~\ref{sec:constraints}.
 
-\subsection{Regions, skin selection and occlusion (C7)}
-Three regions (forehead, left and right cheek) are defined as fractions of the tracked face box.
-Inside each region, skin pixels are selected with a YCbCr box ($C_b\in[77,135]$, $C_r\in[128,173]$, $Y\ge20$),
-widened from the classic range so that darker skin is not excluded (checked on AiPEX).
-A region is flagged occluded when the exponentially smoothed skin ratio falls below 0.40 (released above 0.50) and,
-for the cheeks, below 0.60 of the forehead ratio. The face trace is the pixel-weighted mean of the non-occluded regions,
-so a mask removes the cheeks from the average instead of corrupting it.
+\subsection{Pixel selection and denoising}
+Inside each patch, pixels inside a YCbCr skin box that are not specular ($Y\le0.95\cdot255$, no saturated channel) are
+averaged with a 10\,\%/10\,\% trimmed mean; a patch is valid in a frame if at least 20 pixels remain. Each colour
+channel is then denoised by a Kalman filter with a random-walk level and measurement noise
+$R_k = R_0\,\mathrm{median}(n)/n_k$, so frames averaged over fewer pixels are trusted less; the process noise places the
+steady-state \SI{-3}{dB} point at $\min(\SI{4}{Hz}, 0.4 f_s)$, above the HR band.
 
-\subsection{Kalman denoising}
-Each colour channel of the frame-mean trace is modelled as a random-walk level observed in noise whose variance is
-inversely proportional to the number of skin pixels $n_k$ behind frame $k$:
-$R_k = R_0\,\mathrm{median}(n)/n_k$, with $R_0=\mathrm{var}(\Delta x)/2$.
-The process noise $Q$ is set so that the steady-state filter is a first-order low-pass with its \SI{-3}{dB} point at
-\SI{4}{Hz}, above the HR band. The filter is causal and therefore usable live.
-
-\subsection{Pulse extraction and HR estimation}
-Lost or occluded frames are blanked, and the traces are resampled to a uniform \SI{30}{Hz} grid using the real frame
-timestamps. POS~\cite{wang2017pos} uses a \SI{1.6}{s} sliding window with overlap-add; CHROM~\cite{dehaan2013chrom} is the
-alternative. The pulse is detrended with smoothness priors~\cite{tarvainen2002detrending} ($\lambda=100$), band-passed with a
-zero-phase 4th-order Butterworth filter (\SIrange{0.7}{3.0}{Hz}, \SIrange{42}{180}{bpm}) and z-scored.
-HR is the strongest spectral peak in each \SI{10}{s} Hann window (\SI{1}{s} step, $2^{14}$-point FFT, parabolic
-interpolation). A window is scored only if at least \SI{80}{\percent} of its frames were valid; coverage is reported.
-For datasets with one reference value per video (AiPEX) the video-level HR is the peak of the averaged,
-power-normalised window spectra.
+\subsection{Pulse extraction and SNR-weighted spectral fusion}
+Traces are resampled to a uniform grid from the measured frame timestamps. Per patch, POS~\cite{wang2017pos}
+(\SI{1.6}{s} window, overlap-add) is followed by smoothness-priors detrending~\cite{tarvainen2002detrending} ($\lambda=100$)
+and a zero-phase second-order Butterworth band-pass (\SIrange{0.7}{3.0}{Hz}, \SIrange{42}{180}{bpm}). For every
+\SI{10}{s} window (\SI{1}{s} step) each patch spectrum $P_i(f)$ (Hann window, $2^{14}$-point FFT) is normalised to unit
+in-band energy and its SNR is computed as the power within \SI{\pm6}{bpm} of the dominant peak and its harmonic divided
+by the remaining in-band power. The fused spectrum is
+\begin{equation}
+  P(f) = \frac{\sum_{i\in K} w_i P_i(f)}{\sum_{i\in K} w_i},\qquad w_i = c_i\,\max(\mathrm{SNR}_i - 1, 0),
+\end{equation}
+where $c_i$ is the share of valid frames and $K$ the five patches with the largest weights. HR is the peak of $P(f)$
+with parabolic interpolation. Windows with less than 80\,\% valid frames are reported as \texttt{LOW\_COVERAGE}; when the
+lower-face patches are occluded the status is \texttt{MASKED} and fusion uses groups A/B. For datasets with one reference
+value per video (AiPEX) the video-level HR is the peak of the averaged fused spectrum.
 
 \subsection{Reference HR}
-The contact PPG is interpolated onto the same time grid and passed through the same detrending, band-pass and
-windowed FFT, so each rPPG window has a matching reference window. The reference never passes through any
-tracking or fusion step.
+The contact PPG is interpolated onto the same grid and passed through the same detrending, band-pass and windowed FFT,
+but never through fusion or tracking, so that our errors are not understated.
 
 \begin{table}[t]
 \centering
-\caption{Pipeline parameters (frozen for the test runs \todo{freeze 28 Nov 18:00}).}
+\caption{Frozen Round-1 configuration (CP2, tag \texttt{round1-freeze}, 27 Nov 2026).}
 \label{tab:params}
 \begin{tabular}{@{}ll@{}}
 \toprule
-Detection / tracking & RetinaFace every 10 frames, KLT, 1-Euro (1\,Hz, 0.02) \\
-Skin box & $C_b$ 77--135, $C_r$ 128--173, $Y\ge 20$ \\
-Occlusion & skin ratio on $<0.40$, off $>0.50$ \\
-Kalman & \SI{-3}{dB} at 4\,Hz, $R_k\propto 1/n_{\mathrm{pix}}$ \\
-POS window & 1.6\,s \\
-Detrending & smoothness priors, $\lambda=100$ \\
-Band-pass & Butterworth order 4, 0.7--3.0\,Hz, zero phase \\
-HR window & 10\,s, step 1\,s, $2^{14}$-point FFT \\
-Window validity & $\ge$\SI{80}{\percent} valid frames \\
+Landmarks / patches & MediaPipe 478 pts, 10 patches~\cite{li2026roi}, 1-Euro 1\,Hz, $\beta$ 0.02 \\
+Pixels & YCbCr skin, specular removal, trimmed mean 10/10\,\% \\
+Kalman & $R_k\propto1/n_{\mathrm{pix}}$, \SI{-3}{dB} at $\min(4\,\mathrm{Hz}, 0.4f_s)$ \\
+POS / detrending & 1.6\,s / smoothness priors $\lambda=100$ \\
+Band-pass & Butterworth order 2, 0.7--3.0\,Hz, zero phase \\
+HR windows & 10\,s, step 1\,s, $2^{14}$-point FFT \\
+Fusion & SNR-weighted spectra, top-5, $w=c\max(\mathrm{SNR}-1,0)$ \\
+Validity & $\ge20$ px per patch, $\ge80$\,\% valid frames per window \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-% ------------------------------------------------------------------------------------------------
+% ================================================================================================
 \section{Datasets and protocol}
 \textbf{UBFC-rPPG}~\cite{bobbia2019ubfc} (DATASET\_2): 42 subjects, $640\times480$, about 30\,fps, contact PPG.
-\textbf{AiPEX rppg\_biases}~\cite{dasari2021bias}: 44 subjects from India and 44 from Sierra Leone; for each subject
-three pre-cropped ROI videos (forehead $60\times30$, cheeks $25\times25$ pixels) and one mean HR from a Masimo pulse
-oximeter. Face detection is bypassed for AiPEX (input adapter only).
-\textbf{Sri Ramachandra} (organiser data): no ground truth was supplied; it is used only for analyses that do not need a
-reference and is never used for tuning or accuracy claims. \todo{organiser reply on references and consent for minors.}
+\textbf{AiPEX}~\cite{dasari2021bias}: 44 subjects from India and 44 from Sierra Leone; per subject three pre-cropped ROI
+videos (15\,fps) and one mean HR from a Masimo oximeter. Face detection is bypassed for AiPEX (input adapter only).
+\textbf{Sri Ramachandra} (organiser data): no ground truth was supplied; it is never used for tuning or accuracy claims.
 
-\textbf{Splits.} UBFC dev = subjects \{1, 3, 5, 8--16\}, test = the remaining 30.
-AiPEX is split by subject with a fixed seed into dev (62) and a held-out test set (26; 13 per country), and all
-development uses 5-fold cross-validation on dev only. Parameters are frozen on 28 Nov 2026; the test sets are run once
-afterwards. The baseline numbers in Section~\ref{sec:results} predate this split and are computed on all subjects.
+\textbf{Splits and freeze.} UBFC dev = subjects \{1, 3, 5, 8--16\}, test = the other 30. AiPEX is split by subject with a
+fixed seed into dev (62) and test (26; 13 per country). All development used dev only: AiPEX with 5-fold cross-validation
+stratified by country (nested for multi-valued settings), and a change was kept only if the paired-bootstrap 95\,\% CI of
+its gain excluded zero, UBFC-dev did not degrade by more than 0.1\,bpm and the India--Sierra Leone gap did not widen by more
+than 0.5\,bpm. Parameters were frozen on 27 Nov 2026; each test set was run once afterwards. The 42-subject UBFC numbers of
+our initial pipeline predate the split.
 
-\textbf{Metrics.} MAE, RMSE, Pearson $r$, Bland--Altman bias and \SI{95}{\percent} limits of agreement
-(LoA)~\cite{bland1986statistical}, success rate within 3/5\,bpm (SUC@3, SUC@5) and coverage.
-Primary protocol: 10\,s windows, 1\,s step. \todo{repeated-measures LoA and subject-level bootstrap CIs.}
+\textbf{Metrics.} MAE, RMSE, Pearson $r$, Bland--Altman bias and 95\,\% limits of agreement
+(LoA)~\cite{bland1986statistical}, SUC@3/SUC@5 (share within 3/5\,bpm) and coverage; 10\,s windows with 1\,s step for UBFC,
+one value per video for AiPEX. \todo{repeated-measures LoA and subject-level bootstrap CIs for UBFC.}
 
-% ------------------------------------------------------------------------------------------------
+% ================================================================================================
 \section{Results}
 \label{sec:results}
 
-\subsection{UBFC-rPPG, all 42 subjects}
-% source: outputs/repro/ubfc2_seeded_pooled.csv, run_ubfc_all @ 318426d (Viola-Jones front end)
+\subsection{UBFC-rPPG}
+% sources: outputs/repro/ubfc2_seeded_pooled.csv (318426d); outputs/ablation_roi/summary.csv (a275573);
+%          outputs/round1/ubfc_dev_summary.csv (16ec481, tools/eval_ubfc_cp2.m)
 \begin{table}[t]
 \centering
-\caption{UBFC-rPPG, 42 subjects, 2{,}379 windows of 10\,s, pooled. Viola--Jones front end.}
+\caption{UBFC-rPPG, pooled over 10\,s windows (bpm).}
 \label{tab:ubfc}
-\begin{tabular}{@{}llS[table-format=1.2]S[table-format=1.2]S[table-format=1.3]@{}}
+\begin{tabular}{@{}lccccc@{}}
 \toprule
-Method & Region & {MAE} & {RMSE} & {$r$} \\
+Pipeline (subjects) & MAE & RMSE & $r$ & LoA & SUC@5 \\
 \midrule
-\textbf{POS}   & \textbf{combined}   & \bfseries 2.17 & \bfseries 6.49 & \bfseries 0.936 \\
-CHROM & left cheek & 2.45 & 7.38 & 0.920 \\
-CHROM & combined   & 2.55 & 7.72 & 0.912 \\
-POS   & left cheek & 2.92 & 8.51 & 0.895 \\
-POS   & forehead   & 3.03 & 9.27 & 0.872 \\
+Initial: box regions, POS (all 42) & 2.17 & 6.49 & 0.936 & $-13.7$/$+11.4$ & -- \\
+Box regions, SNR fusion (dev 12)    & 2.51 & 6.71 & 0.929 & -- & 92.7\,\% \\
+\textbf{CP2, frozen (dev 12)}       & \textbf{1.41} & \textbf{2.34} & \textbf{0.991} & $-4.9$/$+4.2$ & 97.1\,\% \\
+\textbf{CP2, frozen (test 30)}      & \tbd & \tbd & \tbd & \tbd & \tbd \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-Table~\ref{tab:ubfc} lists the best method/region pairs; GREEN was far worse (\SIrange{11.5}{14.8}{bpm}) and is not
-used further. POS on the combined region gives a pooled MAE of \SI{2.17}{bpm}, bias \SI{-1.14}{bpm} and
-\SI{95}{\percent} LoA $[-13.7, +11.4]$\,bpm. Fig.~\ref{fig:persubject} shows that the error is concentrated in a few
-subjects: the median per-subject MAE is \SI{1.19}{bpm}, but subject 15 (\SI{24.8}{bpm}) and subjects 49, 27 and 41
-(\SIrange{5.1}{5.5}{bpm}) dominate the pooled error and the width of the limits of agreement.
-Failure analysis (spectrograms, per-region SNR, face-box motion) labels subject 15 as low SNR combined with a
-front-end artefact: the Viola--Jones detector re-runs every 30 frames and the box jumps about once per second,
-injecting colour steps that dominate a weak pulse; subjects 49, 27 and 41 show bursts of error during head motion.
-
-\textbf{ROI ablation (UBFC-dev).} Replacing the three box-fraction regions by the ten anatomical patches of
-Li~\emph{et al.}~\cite{li2026roi}, placed from MediaPipe landmarks~\cite{kartynnik2019facemesh} with 1-Euro
-smoothing and fused by per-window SNR (top-5), reduces the pooled MAE on the 12 dev subjects from 2.51 to
-\SI{1.37}{bpm} (RMSE $6.71\rightarrow\SI{2.21}{bpm}$, $r$ $0.929\rightarrow0.992$, SUC@5 92.7 $\rightarrow$ \SI{97.3}{\percent})
-with the same signal chain and reference windows; subject 15 falls from 13.8 to \SI{1.8}{bpm}.
-\todo{test-split confirmation after the freeze.}
+Table~\ref{tab:ubfc} shows that the anatomical patches are the decisive change on UBFC. With the same signal chain and
+reference windows, moving from three box regions to the ten patches lowers the dev MAE from 2.51 to \SI{1.37}{bpm}, and
+the frozen configuration (which adds Kalman denoising, \SI{1.41}{bpm}) keeps the limits of agreement within
+\SI{\pm5}{bpm}, with 99.7\,\% coverage. Failure analysis of the initial pipeline (Fig.~\ref{fig:persubject}) traced its
+worst subject (15, \SI{24.8}{bpm}) to a weak pulse combined with face-box jumps every second when the Viola--Jones
+detector~\cite{viola2001rapid} re-ran; with the smoothed landmark patches this subject falls to \SI{1.8}{bpm}.
+Subjects 27, 41 and 49 showed bursts of error during head motion. \todo{UBFC test-split numbers and per-subject chart.}
 
 \begin{figure}[t]
 \centering
 \includegraphics[width=\columnwidth]{figures/ubfc2_per_subject.pdf}
-\caption{Per-subject MAE on UBFC-rPPG (POS, combined region, 10\,s windows). Orange: MAE $>5$\,bpm; bar for
-subject 15 clipped.}
+\caption{Per-subject MAE of the initial pipeline on all 42 UBFC subjects (POS, combined box region). Orange: MAE
+$>5$\,bpm; bar for subject 15 clipped.}
 \label{fig:persubject}
 \end{figure}
 
-\subsection{Constraints C3, C4 and C7}
+\subsection{Constraints C1--C7}
+\label{sec:constraints}
 % source: Sulojan run_pipeline @ 921910d, reproduced 26 Nov 2026 (docs/REPRODUCTION.md)
-Degraded copies of UBFC subjects were produced with the official recipes: \texttt{imresize} (bicubic) to
-$320\times240$ for C4, a second, real (pulsing) UBFC subject composited beside the target for C3, and a filled
-\texttt{insertShape} polygon over the lower face for C7. Table~\ref{tab:constraints} reports the six held-out subjects.
+\textbf{Face module under C3/C4/C7.} Degraded copies of UBFC were generated with the official recipes (\texttt{imresize}
+bicubic to $320\times240$ for C4; a second, real pulsing subject composited beside the target for C3; a filled
+\texttt{insertShape} polygon over the lower face for C7). Table~\ref{tab:constraints} reports six held-out subjects with
+the multi-face tracker: the target was tracked in every frame with no identity switch, and each constraint added less than
+\SI{0.2}{bpm}.
 \begin{table}[t]
 \centering
-\caption{Face module under constraints, held-out subjects 3, 4, 12, 26, 31, 34 (318 windows per condition).
-MAE/RMSE averaged over subjects (bpm).}
+\caption{Multi-face tracker under constraints, subjects 3, 4, 12, 26, 31, 34 (POS baseline; MAE/RMSE averaged over subjects, bpm).}
 \label{tab:constraints}
 \begin{tabular}{@{}lccccc@{}}
 \toprule
@@ -254,80 +238,135 @@ C3+C4+C7                  & 100\,\% & 0 & 1.48 & 2.47 & 95.3\,\% \\
 \bottomrule
 \end{tabular}
 \end{table}
-The target was tracked in every frame with no identity switch, and the MAE with a bystander in view is unchanged
-from baseline \todo{correlation of our estimate with the bystander's reference HR (bystander test)}. Halving the resolution and masking the lower face each added less than
-\SI{0.2}{bpm}. \todo{C1 low light (lux sweep), C5 10\,fps/500\,kbps, C2 per-ITA strata, C6 aging; runtime on an idle machine.}
 
-\subsection{AiPEX (skin-tone diversity)}
-% source: outputs/repro/aipex_muftee_metrics_avgspec.csv, run_aipex @ f9d4155; published: dataset Results_Final_Main.csv
-\begin{figure}[t]
+\textbf{Frozen pipeline under C1, C4, C5, C6, C7.} Pre-specified subset: UBFC test subjects 4, 17, 18, 20, first 30\,s.
+C1: $\mathrm{im2double}\times g$, $g=$ lux/300, photon-count Poisson noise ($\mathrm{poissrnd}(I\cdot N_{\mathrm{phot}})/N_{\mathrm{phot}}$,
+$N_{\mathrm{phot}}=5000$; \texttt{imnoise} 'poisson' on doubles adds almost no noise), 8-bit quantisation. C5: decimation to
+10\,fps, MPEG-4 at $\le$\SI{500}{kbps}. C6: \texttt{imfilter} edge-emphasising micro-shadow texture on cheeks and forehead.
+C7: landmark-aligned surgical mask covering $\ge40$\,\% of the lower face.
+\begin{table}[t]
 \centering
-\includegraphics[width=\columnwidth]{figures/aipex_comparison.pdf}
-\caption{AiPEX, video-level MAE over all 88 videos: our current pipeline (blue) and published
-methods~\cite{dasari2021bias} (grey).}
-\label{fig:aipex}
-\end{figure}
-Fig.~\ref{fig:aipex} compares our pipeline with the published methods. Our best variant (POS on the right-cheek crop)
-reaches \SI{18.06}{bpm} MAE, well behind BKF (\SI{5.8}{bpm}) and also behind the published CHROM and POS
-implementations on the same data. Errors are similar for India and Sierra Leone (POS, combined: \num{21.1} vs.\
-\SI{21.0}{bpm}), so the gap is not primarily a skin-tone effect of our skin mask. Kalman denoising reduced the MAE of a
-POS baseline from 18.6 to \SI{13.1}{bpm} (reproduced). The bias of that baseline equals its MAE
-(\SI{+18.6}{bpm}): every video is over-estimated, which points to a systematic scale error such as an incorrect
-frame-rate assumption.
-Because the same method performs worse in our implementation than in the original study, we attribute the gap mainly
-to input handling rather than physiology.
+\caption{Frozen CP2 under constraints (4 test subjects, 30\,s each, bpm).}
+\label{tab:cp2constraints}
+\begin{tabular}{@{}lcccc@{}}
+\toprule
+Condition & MAE & SUC@5 & Coverage & MASKED \\
+\midrule
+Baseline              & \tbd & \tbd & \tbd & \tbd \\
+C1 (50 lux, Poisson)  & \tbd & \tbd & \tbd & \tbd \\
+C4 ($320\times240$)   & \tbd & \tbd & \tbd & \tbd \\
+C5 (10 fps, 500 kbps) & \tbd & \tbd & \tbd & \tbd \\
+C6 (aging, 0.1)       & \tbd & \tbd & \tbd & \tbd \\
+C7 (surgical mask)    & \tbd & \tbd & \tbd & \tbd \\
+\bottomrule
+\end{tabular}
+\end{table}
+\todo{fill Table~\ref{tab:cp2constraints} from outputs/round1/constraints\_summary.csv and discuss.}
 
-\textbf{Development on AiPEX-dev.} We changed one factor at a time on the 62 dev subjects (5-fold
-cross-validation stratified by country, nested for multi-valued settings) and kept a change only if the paired
-bootstrap 95\,\% CI of its gain excluded zero, UBFC-dev did not degrade by more than 0.1\,bpm and the
-India--Sierra Leone gap did not widen by more than 0.5\,bpm. Of 18 hypotheses, two were kept
+\subsection{AiPEX and skin tone (C2)}
+% sources: outputs/aipex_iter/log.csv, SUMMARY.md; outputs/round1/aipex_test_metrics.csv, aipex_dev_metrics.csv (30a2266)
+\textbf{Development.} We changed one factor at a time on AiPEX-dev (20 logged hypotheses, E001--E020). Two changes were kept
 (Fig.~\ref{fig:waterfall}): SNR-weighted spectral fusion of the three regions instead of averaging their colour
-(\SI{14.29}{} $\rightarrow$ \SI{10.99}{bpm}; UBFC-dev \SI{3.50}{} $\rightarrow$ \SI{2.45}{bpm}) and a second- instead of
-fourth-order band-pass (\SI{10.99}{} $\rightarrow$ \SI{8.39}{bpm}). The country gap fell from 5.9 to
-\SI{0.2}{bpm} (India 8.22, Sierra Leone \SI{8.43}{bpm}). Frame timing was ruled out (all files are exactly
-15\,fps and the estimate/reference ratios do not cluster), and the averaged spectrum proved more robust than the
-median of window peaks, whose bias of \SI{+12}{bpm} shows that individual windows are dominated by noise.
-Viterbi tracking, trimmed-mean and texture-masked pixel selection gave small, non-significant improvements
-(\SIrange{7.6}{8.1}{bpm}). \todo{single AiPEX-test run after the freeze (28 Nov); BKF re-implementation.}
+(\SI{14.29}{} $\rightarrow$ \SI{10.99}{bpm}; UBFC-dev $3.50\rightarrow\SI{2.45}{bpm}$) and a second- instead of
+fourth-order band-pass ($\rightarrow\SI{8.39}{bpm}$). Frame timing was ruled out (all files are exactly 15\,fps and the
+estimate/reference ratios do not cluster); the median of window peaks was biased by \SI{+12}{bpm}, showing that single
+windows are noise-dominated; Viterbi tracking, trimmed-mean and texture-masked pixels gave small, non-significant gains;
+harmonic summation, CHROM and longer windows were worse. Using the common configuration for both datasets (CP2) cost no
+significant accuracy on AiPEX-dev (8.76 vs \SI{8.39}{bpm}, gain CI $[-2.05, 1.10]$).
 
 \begin{figure}[t]
 \centering
 \includegraphics[width=\columnwidth]{figures/aipex_waterfall.pdf}
-\caption{AiPEX-dev cross-validated MAE for the kept changes, with published methods on all 88 videos for context.}
+\caption{AiPEX-dev cross-validated MAE for the kept changes; published methods on all 88 videos for context.}
 \label{fig:waterfall}
 \end{figure}
 
-% ------------------------------------------------------------------------------------------------
-\section{Edge deployment}
-A browser demonstrator implements the same signal chain in TypeScript and runs entirely on the device: MediaPipe
-Face Landmarker~\cite{kartynnik2019facemesh} provides landmarks for ten anatomical patches, pixel selection and the signal chain
-run in a Web Worker, and a service worker caches the application and model so that no network request is made after
-loading (C5, offline operation). The demonstrator supports a $320\times240$, 10\,fps low-bandwidth mode, designation of
-the target among several faces (C3), occlusion display (C7) and an ITA skin-tone readout (C2).
-Unit tests confirm that the TypeScript signal chain matches the earlier JavaScript implementation to $10^{-12}$ and
-recovers a synthetic 72\,bpm pulse within 0.5\,bpm.
-\todo{agreement with the MATLAB reference on the same videos; timing; screenshots; Raspberry Pi 5 and Android.}
+\begin{table}[t]
+\centering
+\caption{AiPEX, one HR per video (bpm). CI: 95\,\% bootstrap over videos.}
+\label{tab:aipex}
+\begin{tabular}{@{}lcccc@{}}
+\toprule
+ & MAE [CI] & Median & Within 5 & Bias [LoA] \\
+\midrule
+CP2 dev (62, CV)  & 8.82 [7.0, 10.8] & 6.65 & 45\,\% & $+0.8$ [$-22$, $+24$] \\
+\textbf{CP2 test (26)} & \textbf{7.16 [5.2, 9.4]} & 5.70 & 38\,\% & $-0.6$ [$-18$, $+17$] \\
+\quad India / S.\ Leone & 5.93 / 8.39 & & & \\
+\midrule
+\multicolumn{5}{@{}l}{Published, all 88~\cite{dasari2021bias}: BKF 5.8, CHROM 11.6, POS 14.0, Sph.\ mean 15.1, DeepPhys 15.5} \\
+\bottomrule
+\end{tabular}
+\end{table}
 
-% ------------------------------------------------------------------------------------------------
+\textbf{Held-out test.} On the 26 AiPEX-test subjects, run once after the freeze, the frozen pipeline reaches
+\SI{7.16}{bpm} MAE (Table~\ref{tab:aipex}), consistent with dev; it remains above the published BKF result
+(\SI{5.8}{bpm}, computed on all 88 videos). The correlation with the reference is low ($r=0.23$): the references span only
+66--\SI{93}{bpm} and the estimates do not yet resolve between-subject differences within that range.
+
+% source: docs/SNR_FUSION.md, outputs/snr_fusion (merge fd87348)
+\textbf{Independent SNR fusion.} A team member independently developed a Python SNR-fusion pipeline (linear SNR
+weights, median of window peaks, no Kalman or detrending). We reproduced its result exactly on all 88 videos: POS
+\SI{16.0}{bpm} $\rightarrow$ SNR fusion \SI{8.2}{bpm} (median 5.8, 43\,\% within 5\,bpm; better/worse by $>$\SI{1}{bpm}
+in 72/10 videos; like-for-like gain $-7.8$\,bpm, CI $[-9.3, -6.3]$, sign test $p=5\times10^{-11}$). No parameter was tuned
+on AiPEX. On our splits it gives 7.91 (dev) and \SI{8.90}{bpm} (test). Both implementations confirm SNR-weighted fusion as
+the main gain on AiPEX.
+
+% sources: outputs/round1/c2_dev_E019_*.csv, c2_test_CP2_*.csv (tools/c2_aipex.py); figure tools/make_c2_figure.py
+\textbf{Skin tone (C2).} The individual typology angle ITA $=\mathrm{atan2}(L^*-50, b^*)\cdot180/\pi$ was computed from the
+mean skin colour of the three crops (\texttt{rgb2lab}, sRGB/D65) and grouped as I--II, III--IV and V--VI. The tolerance
+$\tau=\max(\SI{1}{bpm}, 0.25\cdot\mathrm{MAE})$ was pre-specified. No statistically significant difference in error between
+ITA groups was detected (permutation test of the range of group MAEs: $p=0.71$ on dev, $p=0.24$ on test;
+Fig.~\ref{fig:c2}). With $n=5/8/49$ (dev) and $2/5/19$ (test) videos the bootstrap CIs of the group deviations are wider
+than $\pm\tau$, so the result is reported as inconclusive rather than as an absence of bias. Camera-derived ITA is a
+lighting-dependent proxy, not a clinical Fitzpatrick rating: all five videos classified I--II on dev come from Sierra Leone,
+which indicates illumination and white-balance effects. Errors per country were similar (dev: India 9.28, Sierra Leone
+\SI{8.35}{bpm}).
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=0.9\columnwidth]{figures/c2_ita.pdf}
+\caption{AiPEX MAE per ITA group with 95\,\% bootstrap CIs; dashed lines: overall MAE, bands: $\pm\tau$.}
+\label{fig:c2}
+\end{figure}
+
+% ================================================================================================
+\section{Edge deployment and reproducibility}
+\textbf{Web demonstrator.} A browser application implements the same chain in TypeScript: MediaPipe landmarks, the ten
+patches, pixel selection and SNR fusion run on the device in a Web Worker; a service worker caches the application and model,
+so no network request is made after loading (C5, offline operation). It supports a $320\times240$, 10\,fps mode, target
+designation by clicking (C3), occlusion display (C7), an ITA readout (C2), a whole-frame low-light warning (C1), 1-Euro
+landmark smoothing and motion suppression. Unit tests (43) pass on synthetic data; the TypeScript chain matches the earlier
+implementation to $10^{-12}$. \todo{agreement with MATLAB on the same videos; timing; screenshots.}
+
+\textbf{Submission video encoding.} The pulse is only 0.1--1\,\% of the pixel intensity and is easily destroyed by
+compression. MATLAB's \texttt{VideoWriter} MPEG-4 encoder saturates at about \SI{1.4}{Mbps} and raised the MAE on a
+30\,s dev clip from 1.43 (lossless) to \SI{29.9}{bpm}. Encoding \texttt{target\_video.mp4} with x264 at CRF 4 with
+adaptive quantisation, deblocking and psycho-visual tuning disabled (\SI{16}{Mbps}) keeps the pulse
+(\SI{1.51}{bpm}, 100\,\% coverage) and remains readable by MATLAB.
+
+\textbf{Reproducibility.} All results come from scripts in the repository; random seeds are fixed per video (the robust
+motion estimate in the face tracker otherwise made results differ between runs); parameters, splits, the experiment log and
+the freeze tag are versioned.
+
+% ================================================================================================
 \section{Discussion and limitations}
 \begin{itemize}
-  \item Accuracy on UBFC is limited by a few subjects; quality weighting of regions and physiology-constrained HR
-        tracking are the planned remedies.
-  \item The AiPEX gap must be closed before claims about skin-tone robustness can be made; India and Sierra Leone
-        errors are currently similar.
-  \item Constraint results for C3, C4 and C7 are from simulation on UBFC; real low-light and elderly data are not yet
-        available.
-  \item The organiser (Sri Ramachandra) videos have no reference; no accuracy claim is made on them.
+  \item UBFC is close to the target accuracy on dev; the test split \todo{confirms / qualifies} this.
+  \item AiPEX remains harder: \SI{7.2}{bpm} on test vs \SI{5.8}{bpm} for BKF; per-video correlation is low. BKF-style motion
+        bounding and reference-guided denoising are Round-2 work.
+  \item Skin-tone results are inconclusive at these sample sizes, and ITA is a lighting-dependent proxy.
+  \item Constraint results are from simulation on a small subset; real low-light and elderly data are not yet available.
+  \item The organiser videos have no reference; no accuracy claim is made on them.
 \end{itemize}
 
 \section{Ethics and data statement}
 We use the public UBFC-rPPG and AiPEX datasets under their licences, and the organiser's data under the competition
-agreement. No faces from the organiser's data appear in this report. No new human-subject data were collected for
-Round~1.
+agreement. No faces from the organiser's data appear in this report. No new human-subject data were collected for Round~1.
 
 \section*{Acknowledgment}
-Face module: Sulojan Rajkumar; Kalman denoising and AiPEX evaluation: Thamilezai Ananthakumar; signal chain and web
-demonstrator: Muftee Mysan. \todo{supervisor, MathWorks licence, others.}
+Face module and multi-face tracking: Sulojan Rajkumar; Kalman denoising and AiPEX evaluation: Thamilezai Ananthakumar;
+SNR-fusion pipeline and skin-tone (C2) evaluation: Nadha Irshad; signal chain, integration and web demonstrator:
+Muftee Mysan. \todo{contributions of Rajinthan Rameshkumar, John Praveen and Joshua Kulasingham; supervisor; MathWorks licence.}
 
 \bibliographystyle{IEEEtran}
 \bibliography{refs}
