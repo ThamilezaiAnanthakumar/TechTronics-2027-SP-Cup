@@ -9,14 +9,18 @@ function A = anatomicalPatchTraces(videoPath, opts)
 %   Pixel selection per patch and frame: skin mask (face_config.json YCbCr box), specular
 %   removal (Y > 0.95*255 or any channel >= 250), 10 %/10 % trimmed mean.
 %   Output: A.t (Nx1 s), A.rgb (Nx3xP), A.npix (NxP), A.valid (NxP), A.names (1xP), A.groups.
+%   KeepPolygons=true additionally returns A.poly (NxP cell of Kx2 [x y] image polygons, empty
+%   where no target face); off by default, all other outputs are identical either way.
 arguments
     videoPath (1,1) string {mustBeFile}
     opts.MaxFrames (1,1) double = Inf
     opts.CacheFile (1,1) string = ""
     opts.NpixMin (1,1) double = 20
+    opts.KeepPolygons (1,1) logical = false
 end
 if opts.CacheFile ~= "" && isfile(opts.CacheFile)
-    S = load(opts.CacheFile, 'A'); A = S.A; return
+    S = load(opts.CacheFile, 'A');
+    if ~opts.KeepPolygons || isfield(S.A, 'poly'), A = S.A; return; end
 end
 root = fileparts(fileparts(fileparts(mfilename('fullpath'))));
 J = jsondecode(fileread(fullfile(root, 'shared', 'patches.json')));
@@ -31,6 +35,7 @@ rng(0, 'twister');                       % deterministic (no random calls expect
 v = VideoReader(videoPath);
 n = min(opts.MaxFrames, v.NumFrames);
 A.t = zeros(n, 1); A.rgb = NaN(n, 3, nP); A.npix = zeros(n, nP); A.valid = false(n, nP);
+if opts.KeepPolygons, A.poly = cell(n, nP); end
 prevC = []; prevW = []; k = 0;
 while hasFrame(v) && k < n
     k = k + 1;
@@ -54,6 +59,7 @@ while hasFrame(v) && k < n
     sk = skin_mask(I, p); sk = sk(:) & Y <= 0.95 * 255 & all(D < 250, 2);
     for q = 1:nP
         poly = L(idx{q}, :);
+        if opts.KeepPolygons, A.poly{k, q} = poly; end
         M = poly2mask(poly(:, 1), poly(:, 2), v.Height, v.Width);
         sel = M(:) & sk;
         A.npix(k, q) = nnz(sel);
@@ -64,6 +70,7 @@ while hasFrame(v) && k < n
     end
 end
 A.t = A.t(1:k); A.rgb = A.rgb(1:k, :, :); A.npix = A.npix(1:k, :); A.valid = A.valid(1:k, :);
+if opts.KeepPolygons, A.poly = A.poly(1:k, :); end
 A.names = names; A.groups = groups; A.video = videoPath;
 if opts.CacheFile ~= ""
     if ~isfolder(fileparts(opts.CacheFile)), mkdir(fileparts(opts.CacheFile)); end
