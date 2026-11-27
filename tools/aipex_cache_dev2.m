@@ -10,12 +10,13 @@ function aipex_cache_dev2(opts)
 arguments
     opts.TraceRoot (1,1) string = "D:\SPCup Data\work\aipex_iter\traces2"
     opts.Parallel (1,1) logical = true
+    opts.Split (1,1) string {mustBeMember(opts.Split, ["dev" "test"])} = "dev"   % test: cache only, after-freeze use
 end
 root = fileparts(fileparts(mfilename('fullpath')));
 addpath(fullfile(root, 'config')); addpath(genpath(fullfile(root, 'src')));
 cfg = getConfig();
 p = face_params(fullfile(root, 'config', 'face_config.json'));
-ids = readlines(fullfile(root, 'shared', 'splits', 'aipex_dev.txt'), 'EmptyLineRule', 'skip');
+ids = readlines(fullfile(root, 'shared', 'splits', "aipex_" + opts.Split + ".txt"), 'EmptyLineRule', 'skip');
 if ~isfolder(opts.TraceRoot), mkdir(opts.TraceRoot); end
 regions = ["forehead" "leftcheek" "rightcheek"];
 aroot = string(cfg.aipexRoot); troot = opts.TraceRoot;
