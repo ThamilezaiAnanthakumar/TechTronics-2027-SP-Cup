@@ -36,20 +36,24 @@ addpath(fullfile(root, 'config')); addpath(genpath(fullfile(root, 'src')));
 C = struct('pixels', 'skin', 'fuse', 'rgb', 'regions', ["forehead" "leftcheek" "rightcheek"], ...
     'topK', 3, 'kalman', true, 'method', 'POS', 'windowSec', 10, 'videoEst', 'avgspec', ...
     'harmonic', 0, 'posWindowSec', 1.6, 'detrendLambda', 100, 'filterOrder', 4, 'hrBand', [0.7 3.0], ...
-    'viterbiLambda', 0.1, 'motionGamma', 0, 'motionBeta', 0.5, 'cvSeed', 2027, 'SetBest', false, ...
+    'viterbiLambda', 0.1, 'motionGamma', 0, 'motionBeta', 0.5, 'cvSeed', 2027, 'SetBest', false, 'Split', 'dev', ...
     'TraceRoot', "D:\SPCup Data\work\aipex_iter\traces", 'TraceRoot2', "D:\SPCup Data\work\aipex_iter\traces2", 'TraceRoot3', "D:\SPCup Data\work\aipex_iter\traces3");
 diffTxt = strings(0);
 for k = 1:2:numel(varargin)
     name = varargin{k};
     if ~isfield(C, name), error('aipex_iter:opt', 'Unknown option %s', name); end
     C.(name) = varargin{k+1};
-    if ~ismember(name, ["SetBest" "TraceRoot" "TraceRoot2" "TraceRoot3"]), diffTxt(end+1) = name + "=" + string(join(string(varargin{k+1}), '|')); end %#ok<AGROW>
+    if ~ismember(name, ["SetBest" "TraceRoot" "TraceRoot2" "TraceRoot3" "Split"]), diffTxt(end+1) = name + "=" + string(join(string(varargin{k+1}), '|')); end %#ok<AGROW>
 end
 cfg = getConfig('hrWindowSec', C.windowSec, 'posWindowSec', C.posWindowSec, ...
     'detrendLambda', C.detrendLambda, 'filterOrder', C.filterOrder, 'hrBand', C.hrBand);
 
 % ---- dev videos and reference ----
-ids = readlines(fullfile(root, 'shared', 'splits', 'aipex_dev.txt'), 'EmptyLineRule', 'skip');
+isTest = strcmp(C.Split, 'test');           % AiPEX-test: run ONCE after the freeze; no log/best updates
+if isTest
+    C.TraceRoot = replace(C.TraceRoot, "traces", "traces_test"); C.TraceRoot2 = replace(C.TraceRoot2, "traces2", "traces2_test");
+end
+ids = readlines(fullfile(root, 'shared', 'splits', "aipex_" + string(C.Split) + ".txt"), 'EmptyLineRule', 'skip');
 nV = numel(ids);
 country = strings(nV, 1); video = strings(nV, 1); ref = NaN(nV, 1);
 gtCache = struct();
@@ -103,7 +107,7 @@ within5 = 100 * mean(ae < 5); bias = mean(err);
 % ---- compare with current best (paired bootstrap) ----
 bestFile = fullfile(root, 'outputs', 'aipex_iter', 'best_per_video.csv');
 delta = NaN; pval = NaN; dCi = [NaN NaN]; decision = "baseline";
-if isfile(bestFile)
+if isfile(bestFile) && ~isTest
     Bt = readtable(bestFile, 'TextType', 'string');
     [~, ia, ib] = intersect(country + "/" + video, Bt.country + "/" + Bt.video, 'stable');
     aeBest = NaN(nV, 1); aeBest(ia) = abs(Bt.est(ib) - Bt.ref(ib));
@@ -120,6 +124,7 @@ end
 
 % ---- outputs ----
 outDir = fullfile(root, 'outputs', 'aipex_iter', expId);
+if isTest, outDir = fullfile(root, 'outputs', 'round1', 'aipex_test_' + expId); end
 if ~isfolder(outDir), mkdir(outDir); end
 P = table(country, video, ref, est, err, fold);
 writetable(P, fullfile(outDir, 'per_video.csv'));
@@ -137,7 +142,7 @@ L = cell2table(row, 'VariableNames', {'exp_id', 'date', 'git_hash', 'hypothesis'
     'cv_mae', 'cv_mae_ci95', 'delta_vs_best', 'p_paired_bootstrap', 'india_mae', 'sl_mae', ...
     'within5_pct', 'bias', 'ubfc_dev_mae', 'decision', 'notes'});
 logFile = fullfile(root, 'outputs', 'aipex_iter', 'log.csv');
-writetable(L, logFile, 'WriteMode', 'append');
+if isTest, writetable(L, fullfile(outDir, 'summary.csv')); else, writetable(L, logFile, 'WriteMode', 'append'); end
 fprintf('%s: CV MAE %.2f %s | India %.2f SL %.2f | within5 %.0f%% | bias %+.2f | delta %+.2f (gain CI [%.2f %.2f]) -> %s\n', ...
     expId, cvMae, sprintf('[%.2f, %.2f]', ci), indiaMae, slMae, within5, bias, delta, dCi, decision);
 R = struct('table', P, 'cvMae', cvMae, 'ci', ci, 'delta', delta, 'decision', decision, 'config', C);
