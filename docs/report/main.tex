@@ -263,16 +263,27 @@ C7: landmark-aligned surgical mask covering $\ge40$\,\% of the lower face.
 \toprule
 Condition & MAE & SUC@5 & Coverage \\
 \midrule
-Baseline              & \tbd & \tbd & \tbd \\
-C1 (50 lux, Poisson)  & \tbd & \tbd & \tbd \\
-C4 ($320\times240$)   & \tbd & \tbd & \tbd \\
-C5 (10 fps, 500 kbps) & \tbd & \tbd & \tbd \\
-C6 (aging, 0.1)       & \tbd & \tbd & \tbd \\
-C7 (surgical mask)    & \tbd & \tbd & \tbd \\
+Baseline (same 30\,s clips)  & 4.06 & 91.7\,\% & 100\,\% \\
+C1 (50 lux, Poisson)  & 7.36 & 86.9\,\% & 100\,\% \\
+C4 ($320\times240$)   & 5.09 & 89.3\,\% & 100\,\% \\
+C5 (10 fps, 500 kbps)$^{*}$ & 39.2 & 25.0\,\% & 100\,\% \\
+C6 (aging, 0.1)       & 4.07 & 91.7\,\% & 100\,\% \\
+C7 (surgical mask)    & 3.44 & 90.5\,\% & 100\,\% \\
 \bottomrule
+\multicolumn{4}{@{}l}{\footnotesize $^{*}$MATLAB \texttt{VideoWriter} MPEG-4 encoding, which removes the pulse (Sec.~VI).}
 \end{tabular}
 \end{table}
-\todo{fill Table~\ref{tab:cp2constraints} from outputs/round1/constraints\_cp3\_summary.csv and discuss.}
+% source: outputs/round1/constraints_cp3_summary.csv / _per_subject.csv (tools/constraints_cp3.m on the traces cached by
+%         tools/run_constraints.m; commit after 57706fa)
+With only about 21 windows per 30\,s clip, the baseline itself is noisier than on full videos (two subjects have a bad
+stretch at the start), so each condition is read against this same-clip baseline (Table~\ref{tab:cp2constraints}). Masking
+the lower face (C7) did not degrade the estimate (3.44 vs \SI{4.06}{bpm}): the occluded patches receive low SNR weights and
+the glabella, nasal and forehead patches carry the estimate. Halving the resolution (C4) added \SI{1.0}{bpm}. The aging
+texture at strength 0.1 (C6) left the estimate unchanged. At \SI{50}{lux} (C1) the MAE rose to \SI{7.4}{bpm}, driven by one
+subject (5.8 $\rightarrow$ \SI{19.4}{bpm}); the other three changed by less than \SI{0.7}{bpm}. The C5 clips were encoded
+with MATLAB's MPEG-4 writer, which we found removes most of the pulse at any quality setting (Section~VI); this row
+therefore measures that encoder rather than the 500\,kbps budget. \todo{C5 re-encoded with x264 at $\le$500\,kbps using
+the pulse-preserving settings; C1 at 25 and 10 lux; C6 at strength 0.2; all constraints on the full test split.}
 
 \subsection{AiPEX and skin tone (C2)}
 \label{sec:aipex}
