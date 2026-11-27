@@ -22,9 +22,10 @@ arguments
     opts.Condition (1,1) string = "Baseline"
     opts.Constraint (1,1) string = "None"
     opts.Params struct = struct()
+    opts.AllowTest (1,1) logical = false     % true only after the parameter freeze (submission build)
 end
-assert(ismember(subject, "subject" + [1 3 5 8:16]), 'packageRound:dev', ...
-    'Only UBFC dev subjects {1,3,5,8-16} may be packaged.');
+assert(opts.AllowTest || ismember(subject, "subject" + [1 3 5 8:16]), 'packageRound:dev', ...
+    'Only UBFC dev subjects {1,3,5,8-16} may be packaged (AllowTest=true after the freeze).');
 root = fileparts(fileparts(fileparts(mfilename('fullpath'))));
 cfg = getConfig(); cfg.subject = char(subject);
 if opts.OutRoot == "", opts.OutRoot = fullfile(fileparts(cfg.datasetRoot), 'work', 'submission_demo'); end

@@ -19,7 +19,7 @@ if ~isfolder(opts.OutRoot), mkdir(opts.OutRoot); end
 
 % ---- baseline package ----
 P = packageRound(opts.Subject, OutRoot=opts.OutRoot, MaxFramesInMat=opts.MaxFramesInMat, ...
-    Condition="Baseline", Constraint="None");
+    Condition="Baseline", Constraint="None", AllowTest=true);   % post-freeze
 M = load(P.mat, 'metrics');
 fprintf('Baseline %s: MAE %.2f, coverage %.0f%%, %s\n', opts.Subject, M.metrics.MAE, M.metrics.coverage, P.mat);
 pkg = fileparts(P.mat);
