@@ -42,11 +42,15 @@ arguments
     opts.TrendWindows (1,1) double = 20
     opts.TrendBpm (1,1) double = 3
     opts.GapResetS (1,1) double = 10
+    opts.InitWindows (1,1) double = 1      % consensus start (5 tried on UBFC dev: no gain): median of the first raw peaks (not in TROIKA)
+    opts.RelockWindows (1,1) double = Inf  % sustained (5 tried on UBFC dev: no gain), self-consistent disagreement -> re-lock (not in TROIKA)
+    opts.RelockStepBpm (1,1) double = 4.5  % per second; stays below JumpBpm
 end
 bpm = 60 * f(:);
 nW = size(P, 1);
 hr = NaN(nW, 1); action = strings(nW, 1);
 prev = NaN; nSame = 0; lastValid = -Inf; hist = NaN(nW, 1);
+rawBuf = []; nDis = 0; rawHist = NaN(nW, 1);
 jump = opts.JumpBpm * opts.Step; tau = opts.StepBpm * opts.Step;
 for w = 1:nW
     p = P(w, :)';
@@ -56,14 +60,18 @@ for w = 1:nW
         continue
     end
     p(~isfinite(p)) = 0;
-    if ~isfinite(prev)                                   % (re-)initialisation
-        [~, k] = max(p); est = bpm(k); action(w) = "init";
+    [~, kr] = max(p); raw = bpm(kr); rawHist(w) = raw;
+    if ~isfinite(prev)                                   % (re-)initialisation: consensus of the first raw peaks
+        rawBuf(end+1) = raw; %#ok<AGROW>
+        hr(w) = median(rawBuf); action(w) = "init"; lastValid = w;
+        if numel(rawBuf) >= opts.InitWindows, prev = median(rawBuf); hist(w) = prev; rawBuf = []; nDis = 0; end
+        continue
     else
         lost = nSame >= opts.LostWindows;
         half = opts.SearchBpm; if lost, half = opts.SearchLostBpm; end
         r0 = abs(bpm - prev) <= half;
         r1 = bpm >= 2 * (prev - half) & bpm <= 2 * (prev + half);
-        thr = opts.PeakRel * max(p(r0));
+        thr = Inf; if any(r0), thr = opts.PeakRel * max(p(r0)); end
         c0 = topPeaks(p, r0, thr); c1 = topPeaks(p, r1, thr);
         est = NaN;
         for i = 1:numel(c0)                              % Eq. 13: harmonic pair
@@ -79,6 +87,16 @@ for w = 1:nW
         end
         if abs(est - prev) >= jump                       % Eq. 16: verification / clamp
             est = prev + sign(est - prev) * tau; action(w) = "clamp";
+        end
+        % re-lock: the raw peak has disagreed with the track by >= jump for RelockWindows windows and the
+        % raw peaks agree with each other (spread < jump) -> catch up at RelockStepBpm per step (< JumpBpm)
+        if abs(raw - prev) >= jump, nDis = nDis + 1; else, nDis = 0; end
+        if nDis >= opts.RelockWindows
+            rr = rawHist(w - opts.RelockWindows + 1:w);
+            if all(isfinite(rr)) && (max(rr) - min(rr)) < jump
+                tgt = median(rr); stepR = min(opts.RelockStepBpm * opts.Step, abs(tgt - prev));
+                est = prev + sign(tgt - prev) * stepR; action(w) = "relock";
+            end
         end
         if est == prev, nSame = nSame + 1; else, nSame = 0; end
         if nSame >= opts.LostWindows                     % Eqs. 17-18: trend step when stuck
@@ -98,7 +116,7 @@ end
 function idx = topPeaks(p, mask, thr)
 % up to three highest local maxima of p inside mask with p >= thr
 idx = find(mask);
-if numel(idx) < 3, idx = zeros(0, 1); return; end
+if numel(idx) < 3 || ~isfinite(thr), idx = zeros(0, 1); return; end
 q = p(idx);
 isPk = [false; q(2:end-1) > q(1:end-2) & q(2:end-1) >= q(3:end); false] & q >= thr;
 idx = idx(isPk);

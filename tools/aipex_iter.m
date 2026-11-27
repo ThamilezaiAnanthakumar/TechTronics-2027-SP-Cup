@@ -173,6 +173,10 @@ switch C.fuse
         Wc = arrayfun(@(r) W.(r), regs, 'UniformOutput', false);
         [hw, ~, ~, Pf3, fb3] = snrFusionHR(t, Xc, Wc);
         if strcmp(C.tracker, 'troika') && ~isempty(Pf3), hw = troikaTrack(Pf3, fb3); end
+        if strcmp(C.tracker, 'viterbi5') && ~isempty(Pf3)   % global path, |dHR| < 5 bpm per 1 s step
+            okw = all(isfinite(Pf3), 2); Pv = Pf3; Pv(~okw, :) = 1;
+            hw = viterbiHR(Pv, fb3, MaxDown=4.99, MaxUp=4.99); hw(~okw) = NaN;
+        end
         hr = median(hw, 'omitnan');               % video HR = median of window HRs
     case 'rgb'                                   % pixel-weighted mean RGB -> one trace
         num = zeros(N, 3); den = zeros(N, 1);

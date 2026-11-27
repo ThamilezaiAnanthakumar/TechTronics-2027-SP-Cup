@@ -8,7 +8,7 @@ function T = eval_ubfc_cp3(split, tracker)
 %   Writes outputs/round1/ubfc_<split>_cp3_per_subject.csv and _summary.csv.
 arguments
     split (1,1) string {mustBeMember(split, ["dev" "test"])}
-    tracker (1,1) string {mustBeMember(tracker, ["none" "troika"])} = "none"   % troika: src/track/troikaTrack.m
+    tracker (1,1) string {mustBeMember(tracker, ["none" "troika" "viterbi5"])} = "none"   % troika: src/track/troikaTrack.m
 end
 root = fileparts(fileparts(mfilename('fullpath')));
 addpath(root); addpath(fullfile(root, 'config')); addpath(genpath(fullfile(root, 'src')));
@@ -26,6 +26,10 @@ for s = subs
     end
     [hr, tc, ~, Pf, fbq] = snrFusionHR(A.t, X, W);
     if tracker == "troika", hr = troikaTrack(Pf, fbq); end
+    if tracker == "viterbi5"                       % global path, |dHR| <= 5 bpm per 1 s step
+        ok = all(isfinite(Pf), 2); Pv = Pf; Pv(~ok, :) = 1;
+        hv = viterbiHR(Pv, fbq, MaxDown=4.99, MaxUp=4.99); hv(~ok) = NaN; hr = hv;
+    end
     r = refHr(gt, A.t, tc, cfg);
     est = [est; hr]; ref = [ref; r]; %#ok<AGROW>
     maxStep = max(maxStep, max(abs(diff(hr)), [], 'omitnan'));
