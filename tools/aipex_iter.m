@@ -168,6 +168,11 @@ for r = regs
     if isfield(Q, 'motion'), Mo.(r) = Q.motion(1:N, :); else, Mo.(r) = []; end
 end
 switch C.fuse
+    case 'cp3'                                   % port of the teammate's pos_kf_snr (src/pipeline/snrFusionHR.m)
+        Xc = arrayfun(@(r) X.(r), regs, 'UniformOutput', false);
+        Wc = arrayfun(@(r) W.(r), regs, 'UniformOutput', false);
+        hw = snrFusionHR(t, Xc, Wc);
+        hr = median(hw, 'omitnan');               % video HR = median of window HRs
     case 'rgb'                                   % pixel-weighted mean RGB -> one trace
         num = zeros(N, 3); den = zeros(N, 1);
         for r = regs
