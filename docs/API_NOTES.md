@@ -25,3 +25,9 @@ Each entry: question, probe script, environment, answer. Re-run the probe after 
   - `imnoise(uint8,'poisson')`: the grey level itself is the photon count → std 3.62 levels at 13 (= sqrt(13)). This is a fixed 255-photon full scale, i.e. it ignores the sensor's photon budget.
   - `poissrnd(I*Nphot)/Nphot` on the attenuated double image gives std sqrt(I/Nphot) as expected (3.16e-3 at Nphot = 5000).
 - **Decision (`src/degrade/lowLight.m`):** photon model `J = poissrnd(I_att * Nphot) / Nphot` with `I_att = im2double(I) * g`, `g = lux / 300`, and `Nphot` = photo-electrons at full scale (default **5000 e⁻**, typical full well of a small webcam pixel; gives ≈2.5 grey-level shot noise at mid grey at the 300 lux baseline). The lux dependence enters through `I_att`: the expected count per pixel scales with lux, so relative shot noise grows as 1/sqrt(lux). Gaussian read noise: `imnoise(J,'gaussian',0,var)`, var 1e-4…1e-3. Then `im2uint8` (8-bit quantisation is part of the simulation).
+
+## VideoWriter 'MPEG-4' Quality vs bitrate (README 1.3 target_video.mp4, C5)
+- **Probe:** `tools/probe_mpeg4_quality.m` (60 frames of UBFC dev subject 1, 640×480, 30 fps), MATLAB R2026b, Windows.
+- **Answers:** Quality 25 / 50 / 75 / 95 / 100 → 672 / 1184 / 1404 / 1404 / 1404 kbps; mean |error| 1.93 / 1.84 / 1.82 / 1.82 / 1.82 grey levels (max ≈ 60). **Quality saturates at 75**: no near-lossless MPEG-4 is possible from MATLAB on this machine.
+- **Consequence (measured):** `process_round1` on 30 s of dev subject 1: lossless source MAE 1.43 bpm, coverage 100 %; the packaged `target_video.mp4` (1754 kbps) MAE 29.9, coverage 24 % (16/21 windows LOW_SNR). The re-encode removes most of the pulse.
+- **Open (operator):** either ship processed_output from the lossless source and state that `target_video.mp4` is a lossy convenience copy, or encode with ffmpeg (not installed; e.g. H.264 `-crf 0` / `-qp 0`, yuv444p) — needs approval to install.
