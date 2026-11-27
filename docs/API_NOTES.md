@@ -31,3 +31,18 @@ Each entry: question, probe script, environment, answer. Re-run the probe after 
 - **Answers:** Quality 25 / 50 / 75 / 95 / 100 → 672 / 1184 / 1404 / 1404 / 1404 kbps; mean |error| 1.93 / 1.84 / 1.82 / 1.82 / 1.82 grey levels (max ≈ 60). **Quality saturates at 75**: no near-lossless MPEG-4 is possible from MATLAB on this machine.
 - **Consequence (measured):** `process_round1` on 30 s of dev subject 1: lossless source MAE 1.43 bpm, coverage 100 %; the packaged `target_video.mp4` (1754 kbps) MAE 29.9, coverage 24 % (16/21 windows LOW_SNR). The re-encode removes most of the pulse.
 - **Open (operator):** either ship processed_output from the lossless source and state that `target_video.mp4` is a lossy convenience copy, or encode with ffmpeg (not installed; e.g. H.264 `-crf 0` / `-qp 0`, yuv444p) — needs approval to install.
+
+## ffmpeg H.264 MP4 that keeps the pulse (README 1.3 target_video.mp4) — 27 Nov 2026
+- **Install:** `winget install Gyan.FFmpeg` (user scope, operator-approved) → ffmpeg 9.1 at `%LOCALAPPDATA%\Microsoft\WinGet\Packages\Gyan.FFmpeg_...\ffmpeg-9.1-full_build\bin\ffmpeg.exe`.
+- **Probe:** `tools/probe_ffmpeg_mp4.m`, 30 s of UBFC dev subject 1 through the frozen pipeline (runOffline) vs contact PPG. Lossless source: MAE 1.43, coverage 100 %.
+
+| Encoding | kbps | MATLAB VideoReader | MAE | Coverage |
+|---|---|---|---|---|
+| libx264 crf 0 yuv420p / yuv444p (lossless) | 25,977 / 44,721 | **not readable** (High 4:4:4 Predictive profile unsupported by Windows Media Foundation) | – | – |
+| libx264 crf 10 yuv420p (defaults) | 7,872 | yes | 13.82 | 52 % |
+| **libx264 crf 4 yuv420p, aq-mode=0, deblock 0, psy-rd 0, tune grain** | **16,084** | yes | **1.51** | **100 %** |
+| same, crf 1 | 23,871 | yes | 1.63 | 100 % |
+| qp 1, aq-mode=0, deblock 0 | 29,234 | yes | 1.60 | 100 % |
+
+- **Why:** x264's adaptive quantisation and psycho-visual tuning spend fewer bits on flat, low-texture regions — exactly the skin patches carrying the ~0.1–1 % pulse. Turning them off keeps the pulse at moderate bitrate.
+- **Decision:** `src/submit/packageRound.m` encodes `target_video.mp4` with the crf-4 line above (~120 MB per minute at 640×480). VideoWriter MPEG-4 remains only as a labelled fallback.
