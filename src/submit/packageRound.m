@@ -36,14 +36,30 @@ if ~isfolder(pkg), mkdir(pkg); end
 v = VideoReader(vp); fps = v.FrameRate;
 nMax = min(v.NumFrames, floor(opts.MaxSeconds * fps + 1e-9));
 tv = fullfile(pkg, 'target_video.mp4');
-w = VideoWriter(tv, 'MPEG-4'); w.FrameRate = fps; w.Quality = opts.Quality; open(w);
-k = 0; tLast = 0;
-while hasFrame(v) && k < nMax, k = k + 1; tLast = v.CurrentTime; writeVideo(w, readFrame(v)); end
-close(w); clear v
+% Pulse-preserving H.264 (docs/API_NOTES.md, tools/probe_ffmpeg_mp4.m): crf 4, adaptive quantisation and
+% deblocking off, tune grain, yuv420p (readable by MATLAB VideoReader on Windows). 30 s of dev subject 1:
+% lossless MAE 1.43 -> this MP4 1.51 (100 % coverage) vs VideoWriter MPEG-4 29.9 (24 %).
+ff = fullfile(getenv('LOCALAPPDATA'), 'Microsoft', 'WinGet', 'Packages', ...
+    'Gyan.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe', 'ffmpeg-9.1-full_build', 'bin', 'ffmpeg.exe');
+ffArgs = '-c:v libx264 -preset slow -crf 4 -pix_fmt yuv420p -tune grain -x264-params aq-mode=0:deblock=0,0:psy-rd=0,0';
+if isfile(ff)
+    k = min(v.NumFrames, nMax); tLast = (k - 1) / fps;
+    cmd = sprintf('"%s" -y -hide_banner -loglevel error -i "%s" -frames:v %d %s -an "%s"', ff, vp, k, ffArgs, tv);
+    [st, msg] = system(cmd);
+    if st ~= 0, error('packageRound:ffmpeg', 'ffmpeg failed: %s', msg); end
+    encoder = ['ffmpeg 9.1 ' ffArgs];
+else                                     % fallback (destroys most of the pulse; see API_NOTES)
+    w = VideoWriter(tv, 'MPEG-4'); w.FrameRate = fps; w.Quality = opts.Quality; open(w);
+    k = 0; tLast = 0;
+    while hasFrame(v) && k < nMax, k = k + 1; tLast = v.CurrentTime; writeVideo(w, readFrame(v)); end
+    close(w);
+    encoder = sprintf('VideoWriter MPEG-4 Quality %g (LOSSY - pulse largely lost)', opts.Quality);
+end
+clear v
 r = VideoReader(tv); d = dir(tv);
 vidInfo = struct('source', vp, 'frames', k, 'fps', fps, 'width', r.Width, 'height', r.Height, ...
     'duration_s', r.Duration, 'bytes', d.bytes, 'bitrate_kbps', 8 * d.bytes / r.Duration / 1000, ...
-    'encoder', sprintf('VideoWriter MPEG-4 Quality %g', opts.Quality));
+    'encoder', encoder);
 clear r
 
 % reference_signal.csv (same time span as the video, plus one frame)
