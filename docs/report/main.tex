@@ -275,6 +275,9 @@ C7 (surgical mask)    & 3.44 & 90.5\,\% & 100\,\% \\
 \end{table}
 % source: outputs/round1/constraints_cp3_summary.csv / _per_subject.csv (tools/constraints_cp3.m on the traces cached by
 %         tools/run_constraints.m; commit after 57706fa)
+This table scores every window (ungated, 100\,\% coverage). The submitted \texttt{process\_round1} output is gated: it
+reports HR only in windows whose status is \texttt{OK} or \texttt{MASKED}, so under 50\,lux it reports 33\,\% of the windows
+for subject 4 (MAE \SI{1.71}{bpm} on those) instead of guessing in the rest.
 With only about 21 windows per 30\,s clip, the baseline itself is noisier than on full videos (two subjects have a bad
 stretch at the start), so each condition is read against this same-clip baseline (Table~\ref{tab:cp2constraints}). Masking
 the lower face (C7) did not degrade the estimate (3.44 vs \SI{4.06}{bpm}): the occluded patches receive low SNR weights and
