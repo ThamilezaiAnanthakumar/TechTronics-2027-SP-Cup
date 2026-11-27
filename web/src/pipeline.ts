@@ -7,7 +7,7 @@ import { CONFIG } from './config';
 import type { CoreTick, HrRow } from './core/types';
 import type { FrameInfo } from './front/frontEnd';
 import { landmarksBox, type Box, type Landmarks } from './front/geometry';
-import type { FromWorker, ToWorker } from './front/messages';
+import type { CoreKind, FromWorker, ToWorker } from './front/messages';
 import { OneEuroLandmarks } from './front/oneEuro';
 import { AppearanceGate, centralHistogram } from './front/appearance';
 import { LOCAL_CONFIG } from './localConfig';
@@ -36,6 +36,7 @@ export class Pipeline {
   private source: Source = 'live';
   private lowBw = false;
   private method = 'POS';
+  private coreKind: CoreKind = 'cp3';
   private mpTs = 0;
   private inFlight = 0;
   private lastProcT = -Infinity;
@@ -96,12 +97,13 @@ export class Pipeline {
     }
   }
 
-  async startLive(lowBw: boolean, method: string) {
+  async startLive(lowBw: boolean, method: string, coreKind: CoreKind = 'cp3') {
     await this.init();
     this.stop();
     this.source = 'live';
     this.lowBw = lowBw;
     this.method = method;
+    this.coreKind = coreKind;
     const fps = lowBw ? 10 : 30;
     const [w, h] = lowBw ? [320, 240] : [640, 480];
     this.stream = await navigator.mediaDevices.getUserMedia({
@@ -151,12 +153,13 @@ export class Pipeline {
     this.begin();
   }
 
-  async startFile(file: File, lowBw: boolean, method: string) {
+  async startFile(file: File, lowBw: boolean, method: string, coreKind: CoreKind = 'cp3') {
     await this.init();
     this.stop();
     this.source = 'file';
     this.lowBw = lowBw;
     this.method = method;
+    this.coreKind = coreKind;
     this.fileName = file.name;
     this.video.srcObject = null;
     this.video.src = URL.createObjectURL(file);
@@ -285,7 +288,7 @@ export class Pipeline {
   private begin() {
     this.gate.reset();
     this.gateT = -Infinity;
-    this.post({ type: 'reset', method: this.method });
+    this.post({ type: 'reset', method: this.method, core: this.coreKind });
     this.ev.onReset();
     Object.assign(this, {
       running: true, inFlight: 0, lastProcT: -Infinity, tStart: null, targetBox: null, targetLost: false,
@@ -345,8 +348,9 @@ export class Pipeline {
       fps_fixed: this.lock.fps_fixed,
       camera_settings: this.lock.settings,
       mode: this.lowBw ? 'lowbw' : 'default',
-      core: 'interim-ts',
-      method: this.method,
+      core: this.coreKind === 'cp3' ? 'cp3-ts' : 'interim-ts',
+      core_desc: this.coreKind === 'cp3' ? 'CP3 frozen Round-1 chain (round1_freeze.json, port of snrFusionHR.m)' : 'interim TS core (README 4.x)',
+      method: this.coreKind === 'cp3' ? 'POS' : this.method,
       patches: 'shared/patches.json v1 (MediaPipe polygons, Sec 4.2b)',
       created: new Date().toISOString(),
     };
@@ -403,7 +407,7 @@ export class Pipeline {
         this.designated = true;
         this.targetBox = boxes[best];
         this.learnAppearance(boxes[best], t, true);
-        this.post({ type: 'reset', method: this.method }); // new person: restart skin model and core
+        this.post({ type: 'reset', method: this.method, core: this.coreKind }); // new person: restart skin model and core
         this.ev.onReset();
         this.ev.onLog('Target designated by click');
         return { idx: best, status: 2 };
