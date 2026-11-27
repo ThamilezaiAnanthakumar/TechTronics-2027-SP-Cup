@@ -1,5 +1,5 @@
 """C2 figure (README_UPDATE_03 U15): per-ITA-group MAE with 95 % bootstrap CIs, +-tau band around the
-overall MAE, AiPEX dev (CV predictions) and AiPEX-test (frozen CP2). Inputs: outputs/round1/c2_*_groups.csv
+overall MAE, AiPEX dev (CV predictions) and AiPEX-test (frozen CP3). Inputs: outputs/round1/c2_*_groups.csv
 written by tools/c2_aipex.py. Output: docs/report/figures/c2_ita.pdf."""
 import matplotlib
 matplotlib.use("Agg")
@@ -9,8 +9,8 @@ import pandas as pd
 BLUE, ORANGE, INK2, GRID = "#2a78d6", "#eb6834", "#52514e", "#e4e3df"
 plt.rcParams.update({"font.size": 7.5, "axes.spines.top": False, "axes.spines.right": False,
                      "axes.edgecolor": "#8a8984", "axes.labelcolor": INK2, "xtick.color": INK2, "ytick.color": INK2})
-sets = [("AiPEX-dev (CV)", "outputs/round1/c2_dev_E019_groups.csv", BLUE),
-        ("AiPEX-test", "outputs/round1/c2_test_CP2_groups.csv", ORANGE)]
+sets = [("AiPEX-dev (CV)", "outputs/round1/c2_dev_CP3_groups.csv", BLUE),
+        ("AiPEX-test", "outputs/round1/c2_test_CP3_groups.csv", ORANGE)]
 fig, ax = plt.subplots(figsize=(3.4, 2.2), dpi=300)
 for i, (name, path, col) in enumerate(sets):
     g = pd.read_csv(path)
