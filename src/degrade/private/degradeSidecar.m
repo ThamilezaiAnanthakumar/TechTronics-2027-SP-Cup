@@ -1,0 +1,16 @@
+function info = degradeSidecar(outFile, condition, subject, src, params, profile)
+%DEGRADESIDECAR Measure the written video and write <outFile>.json (private).
+%   Measured: resolution, fps, duration, frame count, bytes, bitrate = 8*bytes/duration.
+v = VideoReader(outFile);
+d = dir(outFile);
+out = struct('path', outFile, 'width', v.Width, 'height', v.Height, 'fps', v.FrameRate, ...
+    'duration_s', v.Duration, 'num_frames', v.NumFrames, 'bytes', d.bytes, ...
+    'bitrate_kbps', 8 * d.bytes / max(v.Duration, eps) / 1000, 'profile', char(profile));
+clear v
+info = struct('condition', char(condition), 'subject', char(subject), ...
+    'generator', params.generator, 'params', params, 'source', src, 'output', out, ...
+    'created', char(datetime('now', 'Format', 'yyyy-MM-dd''T''HH:mm:ss')), ...
+    'matlab', version, 'git_hash', gitInfo());
+info.sidecar = [outFile '.json'];
+fid = fopen(info.sidecar, 'w'); fwrite(fid, jsonencode(info, 'PrettyPrint', true)); fclose(fid);
+end

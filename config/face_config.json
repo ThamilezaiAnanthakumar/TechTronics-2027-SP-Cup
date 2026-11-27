@@ -1,0 +1,59 @@
+{
+  "version": "1.2",
+
+  "det": {
+    "model": "small-network",
+    "device": "cpu",
+    "threshold": 0.5,
+    "every": 10
+  },
+
+  "trk": {
+    "targetBox": [],
+    "reacqDist": 1.0
+  },
+
+  "roi": {
+    "names": ["forehead", "lcheek", "rcheek"],
+    "forehead": [0.32, 0.12, 0.68, 0.27],
+    "lcheek":   [0.15, 0.50, 0.38, 0.72],
+    "rcheek":   [0.62, 0.50, 0.85, 0.72],
+    "glabella": [0.42, 0.28, 0.58, 0.40],
+    "nose":     [0.44, 0.40, 0.56, 0.58],
+    "lmalar":   [0.15, 0.46, 0.38, 0.60],
+    "rmalar":   [0.62, 0.46, 0.85, 0.60]
+  },
+
+  "skin": {
+    "cb": [77, 135],
+    "cr": [128, 173],
+    "yMin": 20,
+    "satMax": 250
+  },
+
+  "occl": {
+    "reference": "forehead",
+    "onBelow": 0.40,
+    "offAbove": 0.50,
+    "relOn": 0.60,
+    "relOff": 0.70,
+    "emaAlpha": 0.15,
+    "minPix": 10
+  },
+
+  "smooth": {
+    "enable": true,
+    "minCutoff": 1.0,
+    "beta": 0.02,
+    "dCutoff": 1.0
+  },
+
+  "clip": {
+    "scanEvery": 2,
+    "bystanderScale": 0.75,
+    "bystanderCrop": 1.6,
+    "maskColor": [150, 190, 225],
+    "maskPoly": [[0.00, 0.55], [0.25, 0.50], [0.50, 0.46], [0.75, 0.50], [1.00, 0.55],
+                 [1.02, 0.80], [0.80, 1.02], [0.50, 1.10], [0.20, 1.02], [-0.02, 0.80]]
+  }
+}

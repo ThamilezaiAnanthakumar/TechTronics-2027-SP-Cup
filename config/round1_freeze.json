@@ -1,0 +1,83 @@
+{
+  "name": "CP3 - common pipeline, Round 1 frozen configuration (re-freeze)",
+  "frozen": "2026-11-27, re-freeze after operator decision B; supersedes CP2 (tag round1-freeze -> round1-freeze-cp3)",
+  "why": "Teammate's pos_kf_snr (Nadha Irshad, c2-skin-tone 425fdc1) is better on AiPEX-dev (5.65 Python / 5.59 MATLAB port vs CP2 8.82). Disclosure: the method combination was chosen by the teammate after seeing results on all 88 AiPEX videos (incl. our test split), and CP2 + this method were both evaluated on AiPEX-test before the switch; AiPEX-test is therefore not fully held out for CP3.",
+  "input_adapter": {
+    "video": "MediaPipe FaceLandmarker 478 landmarks (Python 3.11, mediapipe 1.2.3), largest face then nearest-centroid target, 1-Euro (1 Hz, beta 0.02) -> 10 anatomical patches shared/patches.json",
+    "aipex": "3 pre-cropped ROI videos used as patches, no face detection (README 8.5: only allowed dataset-specific setting)"
+  },
+  "pixels": "skin mask + specular removal + 10/10 % trimmed mean (patch valid if >= 20 px)",
+  "signal_chain": "src/pipeline/snrFusionHR.m: per region Kalman (kalman_denoise, R_k ~ 1/npix, 4 Hz, native frames) -> linear resample 30 Hz -> POS 1.6 s -> Butterworth band-pass order 3, 0.7-3 Hz, zero phase (no detrend) -> 10 s windows / 1 s step, Hann periodogram nfft 8192, unit in-band power -> linear SNR (+-0.1 Hz peak, +-0.2 Hz harmonic) weights, fused spectrum, HR = argmax; region needs >= 90 % valid frames per window",
+  "video_level": "median of window HRs (one-value references)",
+  "dev_evidence": {
+    "aipex_dev_cv_mae": 5.59,
+    "aipex_dev_ci95": [
+      4.57,
+      6.75
+    ],
+    "aipex_source": "outputs/aipex_iter E022",
+    "ubfc_dev_pooled_mae": 1.389,
+    "ubfc_dev_loa": [
+      -4.88,
+      4.11
+    ],
+    "ubfc_source": "tools/eval_ubfc_cp3.m('dev')"
+  },
+  "superseded": {
+    "name": "CP2 - common pipeline, Round 1 frozen configuration",
+    "frozen": "2026-11-27 (operator: finish today; README_UPDATE_02 not available, its 15:00 default used as guidance)",
+    "input_adapter": {
+      "video": "MediaPipe FaceLandmarker 478 landmarks (Python 3.11, mediapipe 1.2.3), largest face then nearest-centroid target, 1-Euro (1 Hz, beta 0.02) -> 10 anatomical patches shared/patches.json",
+      "aipex": "3 pre-cropped ROI videos used as patches, no face detection (README 8.5: only allowed dataset-specific setting)"
+    },
+    "pixels": "skin mask (config/face_config.json YCbCr box) + specular removal (Y > 0.95*255 or channel >= 250) + 10/10 % trimmed mean; patch valid if >= 20 px",
+    "kalman": {
+      "enabled": true,
+      "weighting": "R_k = R0*median(npix)/npix_k",
+      "cutoff_hz": 4,
+      "cap": "0.4*fs"
+    },
+    "pulse": {
+      "method": "POS",
+      "pos_window_s": 1.6,
+      "detrend": "smoothness priors, lambda 100",
+      "bandpass_hz": [
+        0.7,
+        3.0
+      ],
+      "butterworth_order": 2,
+      "zero_phase": true
+    },
+    "hr": {
+      "window_s": 10,
+      "step_s": 1,
+      "nfft": 16384,
+      "fusion": "per-window SNR-weighted spectral fusion, weights max(SNR_lin-1,0), top-k 5 (all patches when fewer)",
+      "tracker": "none (Viterbi not significant: E014, E020)",
+      "video_level": "peak of the averaged fused spectrum (one-value references only)"
+    },
+    "flags_off": [
+      "ssa (README_UPDATE_01 U1)",
+      "background patches (U2)",
+      "harmonic summation (E006 rejected)",
+      "viterbi (E014/E020 n.s.)",
+      "motion suppression (E018 not testable on AiPEX)"
+    ],
+    "dev_evidence": {
+      "ubfc_dev_pooled_mae": 1.414,
+      "ubfc_dev_rmse": 2.342,
+      "ubfc_dev_loa": [
+        -4.91,
+        4.15
+      ],
+      "ubfc_dev_source": "tools/eval_ubfc_cp2.m('dev')",
+      "aipex_dev_cv_mae": 8.76,
+      "aipex_dev_ci95": [
+        7.01,
+        10.83
+      ],
+      "aipex_dev_source": "outputs/aipex_iter E019 (n.s. vs best single-dataset config E010 8.39)"
+    },
+    "code": "process_round1.m -> src/pipeline/runOffline.m (Kalman on), tools/aipex_iter.m E019 options"
+  }
+}
