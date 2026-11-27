@@ -34,7 +34,8 @@ arguments
     opts.LowSnrDb (1,1) double = -3
     opts.MaskedFrac (1,1) double = 0.4
     opts.CacheFile (1,1) string = ""
-    opts.Kalman (1,1) logical = true          % CP2 (frozen Round 1 config): Kalman denoising on
+    opts.Kalman (1,1) logical = true          % Kalman denoising for the status/quality path
+    opts.Core (1,1) string {mustBeMember(opts.Core, ["cp3" "cp2"])} = "cp3"   % frozen Round-1 core = CP3
 end
 cfg = opts.Config;
 if isempty(fieldnames(cfg)), cfg = getConfig('filterOrder', 2); end
@@ -75,6 +76,23 @@ if opts.Tracker == "viterbi" && ~isempty(F.f)
     [hv, cv] = viterbiHR(F.Pfused + (sum(F.Pfused, 2) == 0), F.f);   % empty windows -> flat
     use = F.status == "OK" | F.status == "MASKED";
     hr(use) = hv(use); conf(use) = cv(use);
+end
+if opts.Core == "cp3"        % frozen Round-1 core (config/round1_freeze.json): src/pipeline/snrFusionHR.m
+    Xr = cell(1, nP); Wr = cell(1, nP);
+    for q = 1:nP
+        xq = A.rgb(:, :, q); xq(~A.valid(:, q), :) = NaN; Xr{q} = xq; Wr{q} = A.npix(:, q);
+    end
+    [h3, tc3] = snrFusionHR(A.t, Xr, Wr);
+    hr3 = NaN(numel(F.t), 1);
+    for i = 1:numel(F.t)                      % map CP3 window centres onto the status grid
+        [d, j] = min(abs(tc3 - (F.t(i) + tu(1))));
+        if ~isempty(j) && d <= 0.5, hr3(i) = h3(j); end
+    end
+    F.hrRaw = hr3;
+    use = F.status == "OK" | F.status == "MASKED";
+    F.status(use & isnan(hr3)) = "LOW_COVERAGE";   % CP3 needs >= 90 % valid samples per patch: never OK without an HR
+    use = F.status == "OK" | F.status == "MASKED";
+    hr = NaN(size(hr3)); hr(use) = hr3(use);   % HR reported only where status is OK / MASKED
 end
 nW = numel(F.t);
 
