@@ -1,4 +1,4 @@
-function [hr, tc, wMean] = snrFusionHR(t, X, npix, opts)
+function [hr, tc, wMean, Pf, fbOut] = snrFusionHR(t, X, npix, opts)
 %SNRFUSIONHR CP3 signal chain: per-region Kalman -> POS -> SNR-weighted spectral fusion per window.
 %   [hr, tc, wMean] = snrFusionHR(t, X, npix)
 %   t     Nx1 frame times (s, real timestamps)
@@ -6,6 +6,8 @@ function [hr, tc, wMean] = snrFusionHR(t, X, npix, opts)
 %   npix  1xR cell, each Nx1 pixels behind each frame mean ([] = unweighted Kalman)
 %   hr    window HR (bpm) at the centres tc (s); NaN where no region qualifies
 %   wMean 1xR mean normalised SNR weight per region (diagnostics)
+%   Pf    nWin x nBand fused spectra (NaN rows where no region qualifies), fbOut band frequencies (Hz)
+%         — used by the optional TROIKA-style tracker (src/track/troikaTrack.m)
 %
 %   MATLAB port of the teammate's pos_kf_snr (Nadha Irshad, branch c2-skin-tone 425fdc1,
 %   contrib/snr_fusion/src/python/facevitals/rppg.py: kalman_denoise + sanity_hr_snr), adopted as
@@ -36,7 +38,7 @@ fsNative = 1 / median(diff(t(isfinite(t))));
 anyValid = false(numel(t), 1);
 for r = 1:R, anyValid = anyValid | all(isfinite(X{r}), 2); end
 anyValid = anyValid & isfinite(t);
-hr = []; tc = opts.Centers(:); wMean = NaN(1, R);
+hr = []; tc = opts.Centers(:); wMean = NaN(1, R); Pf = []; fbOut = [];
 if nnz(anyValid) < opts.Win * fs * 0.9 * (fsNative / fs), hr = NaN(numel(tc), 1); return; end
 tv = t(anyValid);
 tu = (tv(1) : 1/fs : tv(end) + 1e-9)';
@@ -59,6 +61,7 @@ L = round(opts.Win * fs);
 nfft = 2^nextpow2(max(8192, L));
 f = (0:nfft/2)' * fs / nfft; m = f >= opts.Band(1) & f <= opts.Band(2); fb = f(m);
 hr = NaN(numel(tc), 1); wSum = zeros(1, R); wCnt = 0;
+Pf = NaN(numel(tc), numel(fb)); fbOut = fb;
 for i = 1:numel(tc)
     sel = tu >= tc(i) - opts.Win/2 & tu < tc(i) + opts.Win/2;
     nS = nnz(sel);
@@ -78,7 +81,7 @@ for i = 1:numel(tc)
         if isempty(fused), fused = wAll(r) * Pb / tot; else, fused = fused + wAll(r) * Pb / tot; end
     end
     if isempty(fused), continue; end
-    [~, k] = max(fused); hr(i) = 60 * fb(k);
+    [~, k] = max(fused); hr(i) = 60 * fb(k); Pf(i, :) = fused';
     if sum(wAll) > 0, wSum = wSum + wAll / sum(wAll); wCnt = wCnt + 1; end
 end
 if wCnt, wMean = wSum / wCnt; end

@@ -36,7 +36,7 @@ addpath(fullfile(root, 'config')); addpath(genpath(fullfile(root, 'src')));
 C = struct('pixels', 'skin', 'fuse', 'rgb', 'regions', ["forehead" "leftcheek" "rightcheek"], ...
     'topK', 3, 'kalman', true, 'method', 'POS', 'windowSec', 10, 'videoEst', 'avgspec', ...
     'harmonic', 0, 'posWindowSec', 1.6, 'detrendLambda', 100, 'filterOrder', 4, 'hrBand', [0.7 3.0], ...
-    'viterbiLambda', 0.1, 'motionGamma', 0, 'motionBeta', 0.5, 'cvSeed', 2027, 'SetBest', false, 'Split', 'dev', ...
+    'viterbiLambda', 0.1, 'tracker', 'none', 'motionGamma', 0, 'motionBeta', 0.5, 'cvSeed', 2027, 'SetBest', false, 'Split', 'dev', ...
     'TraceRoot', "D:\SPCup Data\work\aipex_iter\traces", 'TraceRoot2', "D:\SPCup Data\work\aipex_iter\traces2", 'TraceRoot3', "D:\SPCup Data\work\aipex_iter\traces3");
 diffTxt = strings(0);
 for k = 1:2:numel(varargin)
@@ -171,7 +171,8 @@ switch C.fuse
     case 'cp3'                                   % port of the teammate's pos_kf_snr (src/pipeline/snrFusionHR.m)
         Xc = arrayfun(@(r) X.(r), regs, 'UniformOutput', false);
         Wc = arrayfun(@(r) W.(r), regs, 'UniformOutput', false);
-        hw = snrFusionHR(t, Xc, Wc);
+        [hw, ~, ~, Pf3, fb3] = snrFusionHR(t, Xc, Wc);
+        if strcmp(C.tracker, 'troika') && ~isempty(Pf3), hw = troikaTrack(Pf3, fb3); end
         hr = median(hw, 'omitnan');               % video HR = median of window HRs
     case 'rgb'                                   % pixel-weighted mean RGB -> one trace
         num = zeros(N, 3); den = zeros(N, 1);
