@@ -1,0 +1,2 @@
+exp_id,date,git_hash,hypothesis,change,config_diff,cv_mae,cv_mae_ci95,delta_vs_best,p_paired_bootstrap,india_mae,sl_mae,within5_pct,bias,ubfc_dev_mae,decision,notes
+CP2,2026-11-27,1b68c26,"Round 1 frozen config (CP2) on AiPEX-test, run once after the round1-freeze tag",none (frozen),fuse=spectral; topK=5; filterOrder=2; pixels=trim; videoEst=avgfused,6.779,"[5.20, 9.42]",NaN,NaN,5.927,8.391,38.5,-0.55,,baseline,"fold MAE [7.79 10.11 7.38 4.55 4.07]; gain CI [NaN, NaN]"
