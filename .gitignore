@@ -5,6 +5,8 @@ data/**
 outputs/**
 !outputs/**/
 !outputs/**/.gitkeep
+config/*.local
+models/
 submission/**/*.mat
 submission/**/*.mp4
 submission/**/*.avi
@@ -62,3 +64,6 @@ Thumbs.db
 .idea/
 .vscode/
 .claude/settings.local.json
+
+# Reference papers (copyrighted, keep local)
+docs/references/*.pdf

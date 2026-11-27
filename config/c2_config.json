@@ -1,0 +1,14 @@
+{
+  "version": "1.0",
+  "_comment": "C2 skin-tone evaluation. tau_bpm is the pre-specified acceptance tolerance: a skin-tone group passes if |group MAE - population MAE| <= tau_bpm. Fixed before any result was computed; do not tune it on the results.",
+
+  "tau_bpm": 2.0,
+  "window_s": 10,
+  "step_s": 1,
+  "bootstrap": 2000,
+  "seed": 0,
+  "max_width": 960,
+  "ita_every": 30,
+  "bg_kappa": 1.0,
+  "snr_power": 1.0
+}
