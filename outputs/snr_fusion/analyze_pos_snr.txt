@@ -1,0 +1,47 @@
+merged 5 shard(s): 88 subjects
+
+##### method: pos_snr #####
+
+=== Per dataset ===
+          n  ITA_median  mae  rmse  suc5_pct
+dataset                                     
+AiPEX    88      -17.13  8.2  10.3     43.18
+
+=== ITA_group  (all subjects, tau = 2.0 bpm, population MAE = 8.12) ===
+ group  n_subjects datasets  ITA_median  mae  mae_ci_lo  mae_ci_hi  deviation  pass
+  I-II          15 AiPEX:15       59.65 9.33       6.37      12.53       1.21  True
+III-IV          14 AiPEX:14       22.45 9.09       6.36      11.98       0.97  True
+  V-VI          56 AiPEX:56      -42.04 7.56       6.02       9.09      -0.57  True
+
+=== ITA_class  (all subjects, tau = 2.0 bpm, population MAE = 8.12) ===
+       group  n_subjects datasets  ITA_median   mae  mae_ci_lo  mae_ci_hi  deviation  pass
+  Very light          10 AiPEX:10       76.34  7.86       5.53      10.31      -0.26  True
+       Light           5  AiPEX:5       49.04 12.26       4.91      19.38       4.14 False
+Intermediate           6  AiPEX:6       30.54  8.91       4.87      13.79       0.79  True
+         Tan           8  AiPEX:8       18.15  9.23       5.37      12.76       1.11  True
+       Brown          22 AiPEX:22      -13.97  9.78       7.23      12.56       1.66  True
+        Dark          34 AiPEX:34      -51.30  6.12       4.57       8.00      -2.00 False
+
+=== ITA_group  (ita_consistent subjects, tau = 2.0 bpm, population MAE = 6.04) ===
+ group  n_subjects datasets  ITA_median  mae  mae_ci_lo  mae_ci_hi  deviation  pass
+  I-II           7  AiPEX:7       85.91 7.76       5.12      10.31       1.72  True
+III-IV           3  AiPEX:3       18.55 2.93       2.36       3.72      -3.11 False
+  V-VI          22 AiPEX:22      -51.30 5.92       4.26       7.86      -0.12  True
+
+=== ITA_class  (ita_consistent subjects, tau = 2.0 bpm, population MAE = 6.04) ===
+       group  n_subjects datasets  ITA_median   mae  mae_ci_lo  mae_ci_hi  deviation  pass
+  Very light           6  AiPEX:6       86.17  6.88       4.41       9.08       0.84  True
+       Light           1  AiPEX:1       43.15 13.00        NaN        NaN       6.96 False
+Intermediate           1  AiPEX:1       31.29  3.72        NaN        NaN      -2.32 False
+         Tan           2  AiPEX:2       16.38  2.53       2.36       2.70      -3.51 False
+       Brown           1  AiPEX:1      -28.20  5.35        NaN        NaN      -0.69  True
+        Dark          21 AiPEX:21      -51.87  5.94       4.25       8.09      -0.09  True
+
+=== OLS: subject MAE ~ ITA + dataset ===
+                term   coef     se       t      p  n  dof
+           intercept 8.3529 0.6644 12.5714 0.0000 85   83
+ITA (bpm per degree) 0.0242 0.0141  1.7107 0.0909 85   83
+
+=== Within-dataset Spearman(ITA, MAE) ===
+dataset  n  spearman_rho     p  ITA_min  ITA_max   mae
+  AiPEX 85         0.231 0.034  -79.578   88.556 8.122
