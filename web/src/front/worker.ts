@@ -3,32 +3,35 @@
 // Receives ImageBitmaps + target landmarks; emits per-frame info and 1 Hz
 // core ticks. Keeps the TraceFrame log for .tracejsonl export.
 import { CONFIG } from '../config';
+import { Cp3Core } from '../core/cp3Core';
 import { InterimCore } from '../core/interimCore';
 import type { HrRow, SignalCore, TraceFrame } from '../core/types';
 import { FrontEnd } from './frontEnd';
 import { patchPolygons } from './geometry';
-import type { ToWorker } from './messages';
+import type { CoreKind, ToWorker } from './messages';
 
 const ctx = self as unknown as DedicatedWorkerGlobalScope;
 let canvas: OffscreenCanvas | null = null;
 let g: OffscreenCanvasRenderingContext2D | null = null;
 let front = new FrontEnd();
-let core: SignalCore = new InterimCore();
+let core: SignalCore = new Cp3Core();
 let trace: TraceFrame[] = [];
 let diagN = 0;
 const diag: { bitmapLuma: number; cropLuma: number; size: string; crop: string } = { bitmapLuma: NaN, cropLuma: NaN, size: '', crop: '' };
 let rows: HrRow[] = [];
 
-function makeCore(method: string): SignalCore {
-  // fvcore-WASM will replace this line (README Section 16, interim rule).
-  return new InterimCore({ ...CONFIG, method });
+function makeCore(method: string, kind: CoreKind = 'cp3'): SignalCore {
+  // Default: CP3, the frozen Round-1 chain (cp3Core.ts). The interim core stays
+  // selectable; fvcore-WASM will replace this line (README Section 16).
+  if (kind === 'interim') return new InterimCore({ ...CONFIG, method });
+  return new Cp3Core();
 }
 
 ctx.onmessage = (ev: MessageEvent<ToWorker>) => {
   const m = ev.data;
   if (m.type === 'reset') {
     front = new FrontEnd();
-    core = makeCore(m.method);
+    core = makeCore(m.method, m.core);
     trace = [];
     rows = [];
     return;
