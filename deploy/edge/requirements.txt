@@ -1,5 +1,5 @@
 # Edge runtime for the FaceVitals Python pipeline (src/python/facevitals).
-# Only what face.py and rppg.py need; pandas (dataset loaders) is not installed here.
+# What deploy/edge/*.py and src/python/run_c2.py need (openpyxl, ita_survey extras are left out).
 #
 # mediapipe 0.10.18 is the last release with both the legacy mp.solutions API
 # (used by facevitals/face.py) and Linux aarch64 wheels. It needs Python 3.9-3.12.
@@ -8,5 +8,6 @@ mediapipe==0.10.18
 numpy<2
 scipy>=1.10
 scikit-image>=0.21     # face.py imports rgb2lab (ITA) at module level
+pandas>=2.0            # run_c2.py and the dataset loaders
 # OpenCV comes in with mediapipe (opencv-contrib-python). Do not add opencv-python
 # or opencv-python-headless as well: two OpenCV packages overwrite each other.
