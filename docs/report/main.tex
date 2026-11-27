@@ -358,8 +358,12 @@ which indicates illumination and white-balance effects.
 MediaPipe landmarks, the ten patches, pixel selection and fusion run on the device in a Web Worker; a service worker caches
 the application and model, so no network request is made after loading (C5, offline operation). It supports a
 $320\times240$, 10\,fps mode, target designation by clicking (C3), occlusion display (C7), an ITA readout (C2), a whole-frame
-low-light warning (C1), 1-Euro landmark smoothing and motion suppression. Unit tests (43) pass on synthetic data.
-\todo{align the web signal chain with CP3; agreement with MATLAB on the same videos; timing; screenshots.}
+low-light warning (C1), 1-Euro landmark smoothing and motion suppression. Its default signal core is a TypeScript port of the
+frozen CP3 chain (the Butterworth coefficients match MATLAB to $10^{-12}$ and \texttt{filtfilt} uses MATLAB's edge handling).
+Fed the same patch traces of three UBFC dev subjects, it reproduces the MATLAB window HRs exactly (0\,bpm difference in all 143
+windows); in online mode (re-analysis of the newest 15\,s every second) all reported windows are within \SI{0.44}{bpm} of
+MATLAB. One analysis step takes a median of \SI{13}{ms}. All 53 unit tests pass. \todo{browser timing, live-camera
+validation against a pulse oximeter, screenshots.}
 
 \textbf{Submission video encoding.} The pulse is only 0.1--1\,\% of the pixel intensity and is easily destroyed by
 compression. MATLAB's \texttt{VideoWriter} MPEG-4 encoder saturates at about \SI{1.4}{Mbps} and raised the MAE on a
