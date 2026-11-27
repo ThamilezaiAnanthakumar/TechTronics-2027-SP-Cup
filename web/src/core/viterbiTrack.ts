@@ -150,6 +150,9 @@ export class ViterbiTracker {
   }
 
   get stepCount() { return this.n; }
+  /** Time of the newest / oldest step still held (NaN when empty). */
+  get lastStepT() { return this.steps.length ? this.steps[this.steps.length - 1].tS : NaN; }
+  get firstStepT() { return this.steps.length ? this.steps[0].tS : NaN; }
 
   /** Current (not lagged) best state, bpm. */
   current(): number {

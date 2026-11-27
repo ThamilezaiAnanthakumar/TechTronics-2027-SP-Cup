@@ -3,7 +3,7 @@ import { CONFIG } from '../config';
 import type { CoreTick, HrRow } from '../core/types';
 import { itaCategory } from '../front/color';
 import type { FrameInfo } from '../front/frontEnd';
-import type { CoreKind } from '../front/messages';
+import type { CoreKind, TrackerKind } from '../front/messages';
 import { Pipeline, type Source } from '../pipeline';
 import { STATUS_COLOR, drawBvp, drawOverlay, drawSpectrogram, type SpecColumn } from './draw';
 
@@ -51,6 +51,7 @@ export default function App() {
   const [lowBw, setLowBw] = useState(false);
   const [method, setMethod] = useState('POS');
   const [coreKind, setCoreKind] = useState<CoreKind>('cp3');
+  const [tracker, setTracker] = useState<TrackerKind>('viterbi');
   const [rows, setRows] = useState<HrRow[]>([]);
   const [tick, setTick] = useState<CoreTick | null>(null);
   const [info, setInfo] = useState<FrameInfo | null>(null);
@@ -156,11 +157,11 @@ export default function App() {
 
   const startLive = () => {
     setSource('live');
-    void run(() => pipe.current!.startLive(lowBw, method, coreKind));
+    void run(() => pipe.current!.startLive(lowBw, method, coreKind, tracker));
   };
   const startFile = (f: File) => {
     setSource('file');
-    void run(() => pipe.current!.startFile(f, lowBw, method, coreKind));
+    void run(() => pipe.current!.startFile(f, lowBw, method, coreKind, tracker));
   };
   const stop = () => {
     pipe.current?.stop();
@@ -213,7 +214,7 @@ export default function App() {
   const lowLight = running && Number.isFinite(frameY) && frameY < LOW_LIGHT_FRAME_LUMA;
   const itaVal = info?.itaDeg ?? NaN;
   const nOcc = info ? info.occluded.filter(Boolean).length : 0;
-  const warmLeft = tick ? Math.max(0, CONFIG.window_s + (coreKind === 'cp3' ? 0 : CONFIG.viterbi_lag_s) - (tick.t_s - (t0.current ?? tick.t_s))) : null;
+  const warmLeft = tick ? Math.max(0, CONFIG.window_s + (coreKind === 'cp3' ? (tracker === 'viterbi' ? 3 : 0) : CONFIG.viterbi_lag_s) - (tick.t_s - (t0.current ?? tick.t_s))) : null;
 
   return (
     <div className="app">
@@ -270,6 +271,14 @@ export default function App() {
                 <option value="interim">interim</option>
               </select>
             </label>
+            <label className="select" title="CP3 output tracking on the fused spectrum: no reading changes by 5 bpm or more between consecutive outputs (except 'off'). Viterbi: fixed lag 3 s.">
+              Tracking
+              <select value={coreKind === 'cp3' ? tracker : 'viterbi'} disabled={running || coreKind !== 'cp3'} onChange={(e) => setTracker(e.target.value as TrackerKind)}>
+                <option value="viterbi">Viterbi ±5 bpm (default)</option>
+                <option value="troika">TROIKA</option>
+                <option value="off">off</option>
+              </select>
+            </label>
             <label className="select" title={coreKind === 'cp3' ? 'CP3 always uses POS' : undefined}>
               Method
               <select value={coreKind === 'cp3' ? 'POS' : method} disabled={running || coreKind === 'cp3'} onChange={(e) => setMethod(e.target.value)}>
@@ -298,7 +307,7 @@ export default function App() {
           </div>
           <dl className="facts">
             <dt>Signal core</dt>
-            <dd>{coreKind === 'cp3' ? 'CP3 (frozen Round-1)' : `interim (${method})`}</dd>
+            <dd>{coreKind === 'cp3' ? `CP3 (frozen Round-1) · tracking ${{ viterbi: 'Viterbi ±5 bpm', troika: 'TROIKA', off: 'off' }[tracker]}` : `interim (${method})`}</dd>
             <dt>Skin tone (ITA)</dt>
             <dd>{Number.isFinite(itaVal) ? `${itaVal.toFixed(1)}° · ${itaCategory(itaVal)}` : '--'}</dd>
             <dt>Frame brightness</dt>
@@ -327,7 +336,7 @@ export default function App() {
 
         <section className="card chart-card">
           <h2>Fused spectrum over time <span className="legend">{coreKind === 'cp3'
-            ? <><i className="lg-hr" /> CP3 window HR (argmax, no tracker) <i className="lg-now" /> newest window</>
+            ? <><i className="lg-hr" /> CP3 window HR ({{ viterbi: 'Viterbi ±5 bpm, 3 s lag', troika: 'TROIKA tracked', off: 'argmax, no tracker' }[tracker]}) <i className="lg-now" /> newest window</>
             : <><i className="lg-hr" /> HR track (Viterbi, {CONFIG.viterbi_lag_s} s lag) <i className="lg-now" /> live state</>}</span></h2>
           <canvas ref={specRef} className="chart spec" />
         </section>
@@ -337,7 +346,7 @@ export default function App() {
           <pre>{logs.length ? logs.join('\n') : 'Nothing yet.'}</pre>
           <p className="note">
             {coreKind === 'cp3'
-              ? 'Signal core: CP3, the frozen Round-1 chain (Kalman, POS, order-3 band-pass, linear-SNR spectral fusion, 10 s windows); window HRs identical to MATLAB snrFusionHR.m on UBFC dev parity fixtures.'
+              ? 'Signal core: CP3, the frozen Round-1 chain (Kalman, POS, order-3 band-pass, linear-SNR spectral fusion, 10 s windows); window HRs identical to MATLAB snrFusionHR.m on UBFC dev parity fixtures. Output tracking: ' + { viterbi: 'fixed-lag Viterbi (|ΔHR| < 5 bpm per 1 s reading, 3 s lag, port of viterbiHR.m).', troika: 'TROIKA spectral peak tracking (|ΔHR| < 5 bpm per reading, port of troikaTrack.m).', off: 'off (raw argmax).' }[tracker]
               : `Signal core: interim TypeScript core (POS/CHROM, Kalman, top-${CONFIG.top_k} spectral fusion, harmonic Viterbi).`}{' '}
             Not a medical device.
           </p>

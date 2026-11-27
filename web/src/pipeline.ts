@@ -7,7 +7,8 @@ import { CONFIG } from './config';
 import type { CoreTick, HrRow } from './core/types';
 import type { FrameInfo } from './front/frontEnd';
 import { landmarksBox, type Box, type Landmarks } from './front/geometry';
-import type { CoreKind, FromWorker, ToWorker } from './front/messages';
+import type { CoreKind, FromWorker, ToWorker, TrackerKind } from './front/messages';
+import { tickRows } from './core/types';
 import { OneEuroLandmarks } from './front/oneEuro';
 import { AppearanceGate, centralHistogram } from './front/appearance';
 import { LOCAL_CONFIG } from './localConfig';
@@ -37,6 +38,7 @@ export class Pipeline {
   private lowBw = false;
   private method = 'POS';
   private coreKind: CoreKind = 'cp3';
+  private tracker: TrackerKind = 'viterbi';
   private mpTs = 0;
   private inFlight = 0;
   private lastProcT = -Infinity;
@@ -97,13 +99,14 @@ export class Pipeline {
     }
   }
 
-  async startLive(lowBw: boolean, method: string, coreKind: CoreKind = 'cp3') {
+  async startLive(lowBw: boolean, method: string, coreKind: CoreKind = 'cp3', tracker: TrackerKind = 'viterbi') {
     await this.init();
     this.stop();
     this.source = 'live';
     this.lowBw = lowBw;
     this.method = method;
     this.coreKind = coreKind;
+    this.tracker = tracker;
     const fps = lowBw ? 10 : 30;
     const [w, h] = lowBw ? [320, 240] : [640, 480];
     this.stream = await navigator.mediaDevices.getUserMedia({
@@ -153,13 +156,14 @@ export class Pipeline {
     this.begin();
   }
 
-  async startFile(file: File, lowBw: boolean, method: string, coreKind: CoreKind = 'cp3') {
+  async startFile(file: File, lowBw: boolean, method: string, coreKind: CoreKind = 'cp3', tracker: TrackerKind = 'viterbi') {
     await this.init();
     this.stop();
     this.source = 'file';
     this.lowBw = lowBw;
     this.method = method;
     this.coreKind = coreKind;
+    this.tracker = tracker;
     this.fileName = file.name;
     this.video.srcObject = null;
     this.video.src = URL.createObjectURL(file);
@@ -288,7 +292,7 @@ export class Pipeline {
   private begin() {
     this.gate.reset();
     this.gateT = -Infinity;
-    this.post({ type: 'reset', method: this.method, core: this.coreKind });
+    this.post({ type: 'reset', method: this.method, core: this.coreKind, tracker: this.tracker });
     this.ev.onReset();
     Object.assign(this, {
       running: true, inFlight: 0, lastProcT: -Infinity, tStart: null, targetBox: null, targetLost: false,
@@ -351,6 +355,11 @@ export class Pipeline {
       core: this.coreKind === 'cp3' ? 'cp3-ts' : 'interim-ts',
       core_desc: this.coreKind === 'cp3' ? 'CP3 frozen Round-1 chain (round1_freeze.json, port of snrFusionHR.m)' : 'interim TS core (README 4.x)',
       method: this.coreKind === 'cp3' ? 'POS' : this.method,
+      tracker: this.coreKind === 'cp3'
+        ? { viterbi: 'fixed-lag Viterbi, |dHR| <= 4.99 bpm per 1 s step, lambda 0.1/bpm, lag 3 s (viterbiTrack.ts, port of viterbiHR.m)',
+            troika: 'TROIKA spectral peak tracking (troikaTrack.ts, port of troikaTrack.m)', off: 'none (raw argmax)' }[this.tracker]
+        : 'interim fixed-lag Viterbi (README 4.8.3)',
+      tracker_kind: this.coreKind === 'cp3' ? this.tracker : 'interim',
       patches: 'shared/patches.json v1 (MediaPipe polygons, Sec 4.2b)',
       created: new Date().toISOString(),
     };
@@ -384,7 +393,8 @@ export class Pipeline {
       }
     } else if (m.type === 'tick') {
       this.ev.onTick(m.tick);
-      if (m.tick.row) this.ev.onRows([m.tick.row]);
+      const rows = tickRows(m.tick);
+      if (rows.length) this.ev.onRows(rows);
     } else if (m.type === 'rows') {
       this.ev.onRows(m.rows);
     }
@@ -407,7 +417,7 @@ export class Pipeline {
         this.designated = true;
         this.targetBox = boxes[best];
         this.learnAppearance(boxes[best], t, true);
-        this.post({ type: 'reset', method: this.method, core: this.coreKind }); // new person: restart skin model and core
+        this.post({ type: 'reset', method: this.method, core: this.coreKind, tracker: this.tracker }); // new person: restart skin model and core
         this.ev.onReset();
         this.ev.onLog('Target designated by click');
         return { idx: best, status: 2 };
