@@ -89,7 +89,7 @@ def load_ubfc_gt(path):
 
 # --------------------------------------------------------------- traces with timing
 
-def traces(video, roi, skin, occl, max_width, det_every, max_frames, use_bg):
+def traces(video, roi, skin, occl, max_width, det_every, max_frames, use_bg, det_model=1):
     names = list(roi["names"])
     R = len(names)
     on_below = occl.get("onBelow", 0.40)
@@ -99,7 +99,7 @@ def traces(video, roi, skin, occl, max_width, det_every, max_frames, use_bg):
     if not cap.isOpened():
         raise IOError(f"cannot open {video}")
     fps = cap.get(cv2.CAP_PROP_FPS)
-    det = FaceBox()
+    det = FaceBox(model=det_model)
 
     tm = {s: [] for s in STAGES}
     T, Q, face, reg, bg = [], [], [], [], []
@@ -181,6 +181,8 @@ def main():
     ap.add_argument("--ubfc", type=int, help="UBFC subject number in data/raw/UBFC/DATASET_2")
     ap.add_argument("--max-width", type=int, default=640, help="downscale wider frames (640 VGA, 320 QVGA)")
     ap.add_argument("--det-every", type=int, default=1, help="face detection period in frames")
+    ap.add_argument("--det-model", type=int, choices=(0, 1), default=1,
+                    help="MediaPipe model: 1 full-range (default), 0 short-range (use 0 on the Pi: 1 finds no faces there)")
     ap.add_argument("--max-frames", type=int, default=None, help="only the first N frames")
     ap.add_argument("--no-bg", action="store_true", help="skip the background trace (no pos_bg / pos_snr_bg)")
     ap.add_argument("--name", help="output name (default from the inputs)")
@@ -195,16 +197,16 @@ def main():
     if not video.exists():
         sys.exit(f"error: {video} not found")
     name = a.name or (f"ubfc{a.ubfc}" if a.ubfc is not None else video.parent.name or video.stem)
-    name += f"_w{a.max_width}_det{a.det_every}" + (f"_first{a.max_frames}" if a.max_frames else "")
+    name += f"_w{a.max_width}_det{a.det_every}" + (f"_m{a.det_model}" if a.det_model != 1 else "") + (f"_first{a.max_frames}" if a.max_frames else "")
 
     info = device_info()
     print(f"{info['model']} | Python {info['python']} | mediapipe {info['mediapipe']} | opencv {info['opencv']}")
-    print(f"{video}  (max width {a.max_width}, detect every {a.det_every} frame(s))")
+    print(f"{video}  (max width {a.max_width}, detect every {a.det_every} frame(s), model {a.det_model})")
     temp0, thr0 = cpu_temp(), throttled()
 
     roi, skin, occl = load_face_config()
     t_start = time.perf_counter()
-    d = traces(video, roi, skin, occl, a.max_width, a.det_every, a.max_frames, not a.no_bg)
+    d = traces(video, roi, skin, occl, a.max_width, a.det_every, a.max_frames, not a.no_bg, a.det_model)
     wall = time.perf_counter() - t_start
     N = len(d["t"])
     if N == 0:

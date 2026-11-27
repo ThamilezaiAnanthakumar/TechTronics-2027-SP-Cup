@@ -6,6 +6,11 @@ set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 VENV="$HERE/.venv"
 
+if [ "$(getconf LONG_BIT)" != 64 ]; then
+    # uname -m is not enough: a Pi 4 boots a 64-bit kernel under the 32-bit OS too (uname -m = aarch64)
+    echo "error: 32-bit userland. mediapipe has no 32-bit ARM wheels: flash the 64-bit Raspberry Pi OS." >&2
+    exit 1
+fi
 if [ "$(uname -m)" != "aarch64" ]; then
     echo "warning: $(uname -m), not aarch64. Continuing (useful for testing on a laptop)." >&2
 fi

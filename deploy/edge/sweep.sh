@@ -13,8 +13,9 @@ for w in 640 320; do
         echo "=== width $w, detect every $n"
         "$PY" "$HERE/bench_video.py" "$@" --max-width "$w" --det-every "$n" | grep -E 'fps|^total|^pos|throttled'
         if command -v vcgencmd >/dev/null; then
-            # let the Pi cool down between runs so each one starts from the same temperature
-            while t=$(vcgencmd measure_temp | tr -dc '0-9.'); (( ${t%.*} > 60 )); do sleep 10; done
+            # let the Pi cool down between runs so each one starts from the same temperature;
+            # at most 3 min: a Pi without a heatsink can idle above 60 C and would wait forever
+            for _ in $(seq 18); do t=$(vcgencmd measure_temp | tr -dc '0-9.'); (( ${t%.*} > 60 )) || break; sleep 10; done
         fi
     done
 done

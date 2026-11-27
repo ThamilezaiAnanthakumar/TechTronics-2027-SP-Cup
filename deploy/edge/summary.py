@@ -12,7 +12,7 @@ for p in sorted(OD.glob("*.json")):
     if "stages_ms" not in r:
         continue
     row = dict(name=r["name"], device=r["device"]["model"][:30], size="x".join(map(str, r["frame_size"])),
-               det_every=r["args"]["det_every"], fps=round(r["fps"], 1), ms_frame=round(r["total_ms"], 1),
+               det_every=r["args"]["det_every"], model=r["args"].get("det_model", 1), fps=round(r["fps"], 1), ms_frame=round(r["total_ms"], 1),
                detect_ms=round(r["detect_call_ms"], 1), face_pct=round(r["face_found_pct"], 1),
                temp_max=r["temp_max_c"], throttled=r["throttled_end"])
     for m, h in r["hr"].items():

@@ -140,10 +140,15 @@ def summarize_ita(samples):
 # --------------------------------------------------------------- face box / ROI
 
 class FaceBox:
-    """Largest face per frame (MediaPipe full-range model), box extended to cover the forehead."""
+    """Largest face per frame, box extended to cover the forehead.
 
-    def __init__(self, min_conf=0.5):
-        self.det = mp.solutions.face_detection.FaceDetection(model_selection=1,
+    model 1 = MediaPipe full-range (default, up to ~5 m), 0 = short-range (within ~2 m, faster).
+    On the Raspberry Pi (aarch64, mediapipe 0.10.18) the full-range model finds no faces at all,
+    so use model 0 there.
+    """
+
+    def __init__(self, min_conf=0.5, model=1):
+        self.det = mp.solutions.face_detection.FaceDetection(model_selection=model,
                                                              min_detection_confidence=min_conf)
 
     def __call__(self, rgb):
