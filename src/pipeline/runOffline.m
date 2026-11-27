@@ -34,6 +34,7 @@ arguments
     opts.LowSnrDb (1,1) double = -3
     opts.MaskedFrac (1,1) double = 0.4
     opts.CacheFile (1,1) string = ""
+    opts.Kalman (1,1) logical = true          % CP2 (frozen Round 1 config): Kalman denoising on
 end
 cfg = opts.Config;
 if isempty(fieldnames(cfg)), cfg = getConfig('filterOrder', 2); end
@@ -57,8 +58,12 @@ X = cell(1, nP); V = cell(1, nP);
 for q = 1:nP
     v = A.valid(:, q) & all(isfinite(A.rgb(:, :, q)), 2);
     vu = interp1(A.t, double(v), tu, 'linear', 0) >= 1 - 1e-9;  % both neighbours valid
+    xn = A.rgb(:, :, q); xn(~v, :) = NaN;
+    if opts.Kalman && nnz(v) >= 2                                % README 4.4: Thamil's Kalman on native times
+        xn = kalman_denoise(xn, fsMeas, Npix=max(A.npix(:, q), 1));
+    end
     x = NaN(M, 3);
-    if nnz(v) >= 2, x = interp1(A.t(v), A.rgb(v, :, q), tu, 'linear'); end
+    if nnz(v) >= 2, x = interp1(A.t(v), xn(v, :), tu, 'linear'); end
     x(~vu, :) = NaN;
     X{q} = x; V{q} = vu;
 end

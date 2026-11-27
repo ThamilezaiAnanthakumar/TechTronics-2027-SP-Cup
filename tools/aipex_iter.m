@@ -173,7 +173,7 @@ switch C.fuse
         spec = traceSpectrum(num ./ den, den, fs, C, cfg);
         hr = specToHr(spec, C);
     case 'spectral'                              % per-region spectra, SNR-weighted top-k
-        if strcmp(C.videoEst, 'viterbi')         % per-window fusion -> Viterbi -> conf-weighted mean
+        if ismember(C.videoEst, {'viterbi', 'avgfused'})   % per-window fusion -> Viterbi or averaged fused spectrum
             Pw = {}; Sw = [];
             for r = regs
                 spec = traceSpectrum(X.(r), W.(r), fs, C, cfg, Mo.(r));
@@ -190,6 +190,11 @@ switch C.fuse
                 [~, o] = sort(wt, 'descend'); o = o(1:min(C.topK, numel(o)));
                 for j = o, Pf(w, :) = Pf(w, :) + wt(j) * Pw{j}(w, :); end
                 Pf(w, :) = Pf(w, :) / sum(wt(o));
+            end
+            if strcmp(C.videoEst, 'avgfused')    % CP2: same per-window fusion as UBFC, then average
+                S = struct('f', spec.f, 'P', mean(Pf, 1), 'hrWin', [], 'avg', true);
+                hr = specToHr(S, C);
+                return
             end
             [path, conf] = viterbiHR(Pf, spec.f, Lambda=C.viterbiLambda);
             hr = sum(conf .* path) / max(sum(conf), eps);
