@@ -52,11 +52,11 @@ end
 function waterfall_aipex(root, F)
 %WATERFALL_AIPEX Kept changes of the AiPEX-dev loop (outputs/aipex_iter/log.csv) + published methods.
 L = readtable(fullfile(root, 'outputs', 'aipex_iter', 'log.csv'), 'TextType', 'string', 'Delimiter', ',');
-k = L(ismember(L.decision, ["baseline" "keep"]), :);
+k = L;
 B = readtable(fullfile(root, 'outputs', 'repro', 'aipex_paper_baseline.csv'), 'TextType', 'string');
 B = B(B.Subset == "All", :);
-names = ["E000 baseline", "E003 spectral fusion", "E010 BPF order 2"];
-vals = k.cv_mae(ismember(k.exp_id, ["E000" "E003" "E010"]))';
+names = ["E000 baseline", "E003 spectral fusion", "E010 BPF order 2", "CP3 (E022)"];
+ids = ["E000" "E003" "E010" "E022"]; vals = arrayfun(@(e) k.cv_mae(find(k.exp_id == e, 1, 'last')), ids);
 f = figure('Visible', 'off', 'Units', 'centimeters', 'Position', [0 0 8.6 5.2]);
 if exist('theme', 'file'), theme(f, 'light'); end
 bar(1:numel(vals), vals, 0.6, 'FaceColor', [0.165 0.471 0.839], 'EdgeColor', 'none'); hold on;
