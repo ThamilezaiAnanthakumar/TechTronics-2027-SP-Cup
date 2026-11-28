@@ -45,6 +45,9 @@ TRACES = REPO / "outputs" / "traces_py"
 GT_DATASETS = ["UBFC", "MPU", "CLBP", "AiPEX"]
 
 
+MODULE_SUFFIX = {"tracker": "", "tracker_clean": "_clean", "simple": "_simple"}   # table name tails
+
+
 def load_c2_config():
     return json.loads((REPO / "config" / "c2_config.json").read_text())
 
@@ -60,7 +63,7 @@ def get_traces(s, cfg, max_frames=None, rerun=False, module="tracker"):
     version). Crop datasets (AiPEX) skip face detection, so both use the same traces."""
     global _DETECTOR
     tag = f"{s.dataset}_{s.subject}" + (f"_first{max_frames}" if max_frames else "")
-    tdir = TRACES if (s.kind == "crop" or module == "simple") else TRACES / "tracker"
+    tdir = TRACES if (s.kind == "crop" or module == "simple") else TRACES / module
     npz, js = tdir / f"{tag}.npz", tdir / f"{tag}_ita.json"
     if npz.exists() and js.exists() and not rerun:
         d = dict(np.load(npz, allow_pickle=False))
@@ -72,14 +75,15 @@ def get_traces(s, cfg, max_frames=None, rerun=False, module="tracker"):
     roi, skin, occl = load_face_config()
     if s.kind == "crop":
         d = crop_traces(s.video, skin, ita_every=cfg["ita_every"])
-    elif module == "tracker":
+    elif module in ("tracker", "tracker_clean"):
         if _DETECTOR is None:
             from facevitals.retinaface import RetinaFaceDetector
             from facevitals.tracker import face_params
             fp = face_params()
             _DETECTOR = RetinaFaceDetector(fp["det"]["threshold"], fp["det"]["minSize"])
         d = tracked_face_traces(s.video, detector=_DETECTOR, ita_every=cfg["ita_every"],
-                                max_frames=max_frames, max_width=cfg.get("tracker_max_width"))
+                                max_frames=max_frames, max_width=cfg.get("tracker_max_width"),
+                                roi_clean=cfg.get("roi_clean", {}) if module == "tracker_clean" else None)
     else:
         d = face_traces(s.video, roi, skin, occl, max_width=cfg["max_width"],
                         ita_every=cfg["ita_every"], max_frames=max_frames)
@@ -99,7 +103,8 @@ def evaluate_subject(s, cfg, max_frames=None, rerun=False, module="tracker"):
     row = dict(dataset=s.dataset, subject=s.subject, ref=s.ref or "none",
                face_module="crop" if s.kind == "crop" else module, frames=len(q),
                face_found_pct=100 * float((q > 0).mean()) if len(q) else np.nan, **ita)
-    row.update({k: v for k, v in s.meta.items() if k in ("age", "gender", "lux", "country")})
+    row.update({k: v for k, v in s.meta.items() if k in ("age", "gender", "lux", "country", "skin_tone",
+                                                             "protocol", "lighting", "subject_id", "group")})
     win, step = cfg["window_s"], cfg["step_s"]
     windows = []
 
@@ -358,25 +363,33 @@ def main():
                     help="HR method used for the skin-tone statistics; 'compare' prints baseline vs "
                          "background-reference per dataset and subject")
     ap.add_argument("--subjects", nargs="+", default=None, help="only these subject names (quick tests)")
-    ap.add_argument("--face-module", default=None, choices=["tracker", "simple"],
+    ap.add_argument("--where", nargs="+", default=None, metavar="KEY=VALUE",
+                    help="only subjects whose metadata matches, e.g. --where protocol=Resting")
+    ap.add_argument("--face-module", default=None, choices=list(MODULE_SUFFIX),
                     help="face module: 'tracker' = port of the MATLAB module (default, config "
-                         "face_module), 'simple' = MediaPipe largest face (earlier version)")
+                         "face_module), 'tracker_clean' = tracker + ROI cleaning of wrinkles/folds/moles "
+                         "(Caroppo et al. 2024, C6), 'simple' = MediaPipe largest face (earlier version)")
     args = ap.parse_args()
     cfg = load_c2_config()
     module = args.face_module or cfg.get("face_module", "tracker")
     TABLES.mkdir(parents=True, exist_ok=True)
     suffix = f"_first{args.max_frames}" if args.max_frames else ""
 
+    msfx = MODULE_SUFFIX[module]
+
+    def same_module(q):
+        tails = [x for x in MODULE_SUFFIX.values() if x]
+        return q.stem.endswith(msfx) if msfx else not any(q.stem.endswith(x) for x in tails)
+
     if args.analyze_only:
         parts = sorted(TABLES.glob(f"c2_subjects{suffix}_shard*.csv"))
-        parts = [q for q in parts if q.stem.endswith("_simple") == (module == "simple")]
+        parts = [q for q in parts if same_module(q)]
         if not parts:
             raise SystemExit(f"no c2_subjects{suffix}_shard*.csv in {TABLES}")
         S = pd.concat([pd.read_csv(p) for p in parts]).drop_duplicates(["dataset", "subject"], keep="last")
         S = S.sort_values(["dataset", "subject"])
         S.to_csv(TABLES / f"c2_subjects{suffix}.csv", index=False)
-        wparts = [q for q in sorted(TABLES.glob(f"c2_windows{suffix}_shard*.csv"))
-                  if q.stem.endswith("_simple") == (module == "simple")]
+        wparts = [q for q in sorted(TABLES.glob(f"c2_windows{suffix}_shard*.csv")) if same_module(q)]
         if wparts:
             pd.concat([pd.read_csv(p) for p in wparts]).to_csv(TABLES / f"c2_windows{suffix}.csv", index=False)
         print(f"merged {len(parts)} shard(s): {len(S)} subjects")
@@ -390,9 +403,13 @@ def main():
     subs = list(dsets.subjects(args.datasets, args.data_root))
     if args.subjects:
         subs = [x for x in subs if x.subject in args.subjects]
+    for cond in args.where or []:
+        k, v = cond.split("=", 1)
+        subs = [x for x in subs if str(x.meta.get(k, "")).lower() == v.lower()]
     subs.sort(key=lambda s: (s.dataset != "MPU", s.dataset, s.subject))   # longest videos spread first
     subs = subs[i - 1::n]
-    tag = f"{suffix}_shard{i}of{n}_" + "-".join(args.datasets) + ("_simple" if module == "simple" else "") + ("_" + "-".join(args.subjects) if args.subjects else "")
+    tag = f"{suffix}_shard{i}of{n}_" + "-".join(args.datasets) + msfx +(("_" + "-".join(args.subjects) if len(args.subjects) <= 3 else f"_{len(args.subjects)}subjects")
+          if args.subjects else "")         + "".join("_" + c.replace("=", "-") for c in (args.where or []))
     print(f"shard {i}/{n}: {len(subs)} subjects, face module: {module}", flush=True)
     rows, wins = [], []
     for k, s in enumerate(subs, 1):

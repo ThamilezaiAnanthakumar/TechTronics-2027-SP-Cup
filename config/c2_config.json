@@ -12,5 +12,5 @@
   "bg_kappa": 1.0,
   "snr_power": 1.0,
   "face_module": "tracker",
-  "tracker_max_width": null
+  "tracker_max_width": 1280
 }

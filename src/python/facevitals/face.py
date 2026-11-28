@@ -333,8 +333,65 @@ def roi_skin_stats(I, poly, skin):
     return s, n_skin, int(in_poly.sum()), patch, M
 
 
+# --------------------------------------------------------------- ROI cleaning (C6, aging skin)
+
+ROI_CLEAN_DEFAULTS = dict(
+    wrinkle_k=3.0,       # ridge response above median + k * robust std (of the region's skin) = wrinkle/fold
+    mole_k=4.0,          # LoG response above median + k * robust std = mole candidate
+    mole_aspect=(0.3, 2.0),       # Caroppo et al. 2024, Eq. 8
+    mole_area_frac=(0.0005, 0.02),  # candidate area as a fraction of the region's pixels
+    scale_per_px=1 / 60,  # ridge scale sigma = region width / 60, clipped to 0.5-3 (paper: 0.5-3 by ROI width)
+)
+
+
+def _robust_thresh(v, k):
+    med = np.median(v)
+    return med + k * 1.4826 * np.median(np.abs(v - med))
+
+
+def roi_clean_mask(patch, M, cfg=None):
+    """
+    "ROI cleaning" after Caroppo et al., Multimed. Tools Appl. 83 (2024) 65363, for elderly skin:
+    removes wrinkle/fold pixels and moles from the skin mask M of one region.
+      wrinkles/folds: Hessian ridge filter (Sato) for DARK ridges in all orientations (the paper
+                      modifies its Hessian filter to find vertical as well as horizontal lines),
+                      scale from the region width (paper: sigma 0.5-3 chosen by ROI width);
+      moles:          Laplacian of Gaussian (dark blobs) -> morphological closing -> connected
+                      components kept if 0.3 < height/width < 2.0 and of plausible size.
+    Thresholds are relative to the region's own skin (median + k * robust std) because the
+    paper does not give absolute values. Returns (cleaned mask, fraction of M removed).
+    """
+    from scipy import ndimage as ndi
+    from skimage.filters import sato
+
+    c = {**ROI_CLEAN_DEFAULTS, **(cfg or {})}
+    n0 = int(M.sum())
+    if n0 < 50:
+        return M, 0.0
+    g = cv2.cvtColor(patch, cv2.COLOR_RGB2GRAY).astype(np.float32) / 255.0
+    s = float(np.clip(patch.shape[1] * c["scale_per_px"], 0.5, 3.0))
+    sig = sorted({round(max(0.5, s / 2), 2), round(s, 2)})
+
+    ridge = sato(g, sigmas=sig, black_ridges=True)
+    wrinkle = ridge > _robust_thresh(ridge[M], c["wrinkle_k"])
+
+    log = ndi.gaussian_laplace(g, sigma=1.5 * s)          # dark blob -> positive response
+    cand = ndi.binary_closing(log > _robust_thresh(log[M], c["mole_k"]), iterations=1)
+    lab, nl = ndi.label(cand)
+    mole = np.zeros_like(M)
+    if nl:
+        amin, amax = (f * M.size for f in c["mole_area_frac"])
+        for sl, idx in zip(ndi.find_objects(lab), range(1, nl + 1)):
+            h, w = sl[0].stop - sl[0].start, sl[1].stop - sl[1].start
+            area = int((lab[sl] == idx).sum())
+            if c["mole_aspect"][0] < h / w < c["mole_aspect"][1] and amin <= area <= amax:
+                mole[sl] |= lab[sl] == idx
+    Mc = M & ~wrinkle & ~mole
+    return Mc, 1.0 - Mc.sum() / n0
+
+
 def tracked_face_traces(path, p=None, detector=None, ita_every=30, max_frames=None, max_width=None,
-                        verbose=False):
+                        verbose=False, roi_clean=None):
     """
     Port of src/face/process_video.m on top of tracker.FaceTracker (RetinaFace, Kalman +
     Hungarian, KLT + similarity transform), with the same per-frame ROI steps:
@@ -346,6 +403,9 @@ def tracked_face_traces(path, p=None, detector=None, ita_every=30, max_frames=No
     Extra outputs used by the C2 evaluation (not in MATLAB): rgb_bg / bg_npix (background
     illumination reference) and ita_samples (L*, b* of each region's skin every ita_every frames).
     max_width=None processes the native resolution, as MATLAB does.
+    roi_clean: None (off, MATLAB-identical) or a dict of roi_clean_mask settings ({} = defaults);
+    when on, each region's skin mask is cleaned of wrinkles/folds/moles before averaging and the
+    removed fraction per region is returned as clean_frac.
     """
     from .retinaface import RetinaFaceDetector
     from .tracker import FaceTracker, OneEuroFilter, face_params, roi_polygons
@@ -365,7 +425,7 @@ def tracked_face_traces(path, p=None, detector=None, ita_every=30, max_frames=No
     abs_state = np.zeros(nR, bool)
     rel_state = np.zeros(nR, bool)
 
-    T, Q, NF, TID, face, reg, npix, ratio, occ, bg, bgn, boxes = ([] for _ in range(12))
+    T, Q, NF, TID, face, reg, npix, ratio, occ, bg, bgn, boxes, cfrac = ([] for _ in range(13))
     ita = {n: [] for n in names}
     for k, t, rgb in frames:
         if max_frames and k >= max_frames:
@@ -378,6 +438,7 @@ def tracked_face_traces(path, p=None, detector=None, ita_every=30, max_frames=No
         Q.append(st["quality"]); NF.append(st["n_faces"]); TID.append(st["target_id"])
         fr, rr = np.full(3, np.nan), np.full((nR, 3), np.nan)
         nn, ra, oc = np.zeros(nR), np.full(nR, np.nan), np.zeros(nR, bool)
+        cf = np.full(nR, np.nan)
         fbox = None
         if st["quality"] == 0:
             smoother.reset()
@@ -392,8 +453,13 @@ def tracked_face_traces(path, p=None, detector=None, ita_every=30, max_frames=No
             for r, n in enumerate(names):
                 P = vec[8 * r:8 * r + 8].reshape(2, 4).T
                 s, ns, npoly, patch, M = roi_skin_stats(rgb, P, skin)
-                sums[r], nS[r] = s, ns
+                # occlusion uses the skin ratio BEFORE cleaning, so wrinkle removal never looks like a mask
                 ra[r] = ns / max(npoly, 1)
+                if roi_clean is not None and M is not None and ns:
+                    M, cf[r] = roi_clean_mask(patch, M, roi_clean)
+                    ns = int(M.sum())
+                    s = patch[M].sum(axis=0, dtype=np.float64) if ns else np.zeros(3)
+                sums[r], nS[r] = s, ns
                 ratio_ema[r] = ra[r] if np.isnan(ratio_ema[r]) else \
                     (1 - occl["emaAlpha"]) * ratio_ema[r] + occl["emaAlpha"] * ra[r]
                 if k % ita_every == 0 and M is not None:
@@ -417,7 +483,7 @@ def tracked_face_traces(path, p=None, detector=None, ita_every=30, max_frames=No
             if n_all > 0:
                 fr = s_all / n_all
         b_rgb, b_n = background_rgb(rgb, fbox, skin)
-        face.append(fr); reg.append(rr); npix.append(nn); ratio.append(ra); occ.append(oc)
+        face.append(fr); reg.append(rr); npix.append(nn); ratio.append(ra); occ.append(oc); cfrac.append(cf)
         bg.append(b_rgb); bgn.append(b_n); boxes.append(np.full(4, np.nan) if fbox is None else fbox)
         if verbose and k % 300 == 0:
             print(f"   frame {k}  q={st['quality']}  faces={st['n_faces']}", flush=True)
@@ -431,6 +497,8 @@ def tracked_face_traces(path, p=None, detector=None, ita_every=30, max_frames=No
                n_detector_calls=tracker.num_detections if tracker else 0)
     for i, n in enumerate(names):
         out["rgb_" + n] = reg[:, i, :]
+    if roi_clean is not None:
+        out["clean_frac"] = np.array(cfrac).reshape(-1, nR)
     return out
 
 

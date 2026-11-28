@@ -4,7 +4,7 @@ Dataset loaders. Each yields Subject records with the video(s) and the reference
 Reference kinds:
   "ppg"  contact PPG waveform + times -> reference HR per 10 s window (UBFC, MPU)
   "mean" one HR value for the whole recording (AiPEX: Masimo mean HR, CLBP: spot reading)
-  None   no ground truth (SRMC-N)
+  "mean" also SRMC-N (PR column of PatientDetails_Normal.xlsx)
 
 Default root is the folder that contains the repo (D:/SPCUP), where the datasets were
 downloaded. Override with --data-root or the FACEVITALS_DATA environment variable.
@@ -148,20 +148,51 @@ def aipex(root):
                           dict(hr_ref=gts[(country, rec)], country=country))
 
 
-# --------------------------------------------------------------- SRMC-N (organizer, no GT)
+# --------------------------------------------------------------- SRMC-N (organizer)
+
+SRMC_GT = "PatientDetails_Normal.xlsx"   # sheet "Normal": one pulse-rate (PR) reading per recording
+
 
 def srmc(root):
-    by = {}
-    for v in sorted((root / "SRMC_N").iterdir()):
-        m = re.match(r"S_N(\d+)_(.*)\.(mp4|mov)$", v.name, re.I)
-        if not m:
+    """
+    SRMC-N: every recording listed in PatientDetails_Normal.xlsx, sheets "Normal" (S_N*,
+    videos in "Normal group/") and "Abnormal" (S_AB*, patients with abnormal vitals, videos in
+    "Abnormal group/"). Videos are found anywhere under SRMC_N.
+    Reference = the PR column (one reading per recording -> "mean" reference).
+    Rater skin tone (Fair / Medium Fair / Dark), protocol, lighting and group go into meta.
+    Only the columns below are read: the sheets also hold names, which are not used.
+    """
+    base = root / "SRMC_N"
+    files = {v.stem.lower(): v for v in base.rglob("*")
+             if v.is_file() and re.match(r"S_(N|AB)\d+", v.name, re.I) and v.suffix.lower() in (".mp4", ".mov")}
+    gt_file = base / SRMC_GT
+    if not gt_file.exists():                      # no ground truth: videos only
+        for k in sorted(files, key=_num):
+            yield Subject("SRMC", files[k].stem, "face", files[k], None, dict(file=files[k].name))
+        return
+    for sheet, group in (("Normal", "Normal"), ("Abnormal", "Abnormal")):
+        try:
+            g = pd.read_excel(gt_file, sheet_name=sheet)
+        except ValueError:
             continue
-        sid, tag = int(m[1]), m[2].lower()
-        rank = 0 if tag == "resting" else (1 if "bright" in tag else 2)
-        if sid not in by or rank < by[sid][0]:
-            by[sid] = (rank, v)
-    for sid in sorted(by):
-        yield Subject("SRMC", f"S_N{sid}", "face", by[sid][1], None, dict(file=by[sid][1].name))
+        g.columns = [str(c).strip() for c in g.columns]
+        if "GENDER" not in g.columns and "Unnamed: 3" in g.columns:   # Abnormal sheet: header missing
+            g = g.rename(columns={"Unnamed: 3": "GENDER"})
+        g = g[[c for c in ["ID", "GENDER", "AGE", "SKIN TONE", "PROTOCOL", "PR"] if c in g.columns]]
+        g = g.dropna(subset=["ID", "PR"])
+        for _, r in g.iterrows():
+            rid = str(r["ID"]).strip()
+            v = files.get(rid.lower())
+            if v is None:
+                continue
+            m = re.match(r"S_(?:N|AB)(\d+)_(?:(Bright|Med|Dim)_)?(.*)$", rid, re.I)
+            light = (m[2] or "Normal").capitalize() if m else "Normal"
+            yield Subject("SRMC", rid, "face", v, "mean",
+                          dict(hr_ref=float(r["PR"]), file=v.name, group=group,
+                               subject_id=int(m[1]) if m else _num(rid),
+                               skin_tone=str(r.get("SKIN TONE", "")).strip(),
+                               protocol=str(r.get("PROTOCOL", "")).strip(),
+                               lighting=light, age=r.get("AGE"), gender=str(r.get("GENDER", "")).strip()))
 
 
 LOADERS = dict(UBFC=ubfc, MPU=mpu, CLBP=clbp, AiPEX=aipex, SRMC=srmc)

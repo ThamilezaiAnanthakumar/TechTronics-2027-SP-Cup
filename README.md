@@ -33,6 +33,12 @@ Video ─► Face detection & tracking ─► ROI + skin mask ─► RGB traces 
 - [x] Benchmark: tracking, jitter, occlusion and speed metrics, plus a **baseline HR** (POS) against the contact PPG (MAE, RMSE, r, SUC@3/5, Bland–Altman).
 - [x] Debug overlay videos.
 
+**C2 evaluation and SRMC-N tests (Python, `src/python`)**: see [src/python/README.md](src/python/README.md).
+- [x] Python port of the face module + POS baseline, background reference, SNR fusion, Kalman (`pos_kf_snr`).
+- [x] AiPEX C2 test: `pos_kf_snr` passes τ = 2 bpm for every ITA group.
+- [x] SRMC-N with PR reference (174 Resting clips): `pos` + background + SNR-gated motion lowers the error 17.2 → 14.0 bpm and leaves no skin-tone difference (Dark 14.5 / Medium Fair 13.2 / Fair 14.6); `pos_kf_snr` is worse than `pos` there.
+- [x] Tested without gain on SRMC: Viterbi, harmonic check, SNR-weighted median, averaged-spectrum video level. The remaining errors come from a low-frequency noise hump (55–65 bpm) and heavily compressed 480p clips.
+
 **Open (next steps)**
 - [ ] Signal-processing module (`src/signal`): a stronger HR method, peak tracking across windows, and use of `quality` / `occluded`.
 - [ ] Competition deliverables: `process_round1.m`, `processed_output.csv`, the `.mat` submission structure.

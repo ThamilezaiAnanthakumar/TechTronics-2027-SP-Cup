@@ -274,7 +274,7 @@ def region_snr(f, P, band=BAND):
 
 
 def sanity_hr_snr(t, region_rgbs, win=10.0, step=1.0, band=BAND, centers=None, rgb_bg=None,
-                  power=SNR_POWER, return_weights=False):
+                  power=SNR_POWER, return_weights=False, refs=None, return_spectra=False):
     """
     HR from several ROIs fused by their per-window pulse SNR.
 
@@ -286,7 +286,12 @@ def sanity_hr_snr(t, region_rgbs, win=10.0, step=1.0, band=BAND, centers=None, r
 
     rgb_bg: optional background trace; if given, the background signals are regressed out
     of every region's pulse signal first (as in sanity_hr_bg).
+    refs: optional N x k extra reference signals on the frame times t (e.g. motion_regressors);
+    they are band-passed like the pulse and regressed out per window together with the
+    background signals.
     Returns hr, tc (and the mean normalised weight per region if return_weights).
+    return_spectra: additionally return (Pf, fb), the fused in-band spectrum per window
+    (NaN rows where no region qualifies) and its frequencies (Hz), e.g. for viterbi_hr.
     """
     t = np.asarray(t, float)
     R = len(region_rgbs)
@@ -299,7 +304,11 @@ def sanity_hr_snr(t, region_rgbs, win=10.0, step=1.0, band=BAND, centers=None, r
     if any_valid.sum() < win * FS * 0.9:
         tc = tc_in if tc_in is not None else np.array([])
         out = (np.full(len(tc), np.nan), tc)
-        return out + (np.full(R, np.nan),) if return_weights else out
+        if return_weights:
+            out = out + (np.full(R, np.nan),)
+        if return_spectra:
+            out = out + ((np.full((len(tc), 0), np.nan), np.array([])),)
+        return out
     tv = t[any_valid]
     tu = np.arange(tv[0], tv[-1] + 1e-9, 1 / FS)
 
@@ -322,12 +331,20 @@ def sanity_hr_snr(t, region_rgbs, win=10.0, step=1.0, band=BAND, centers=None, r
             Bn = Xb / np.maximum(Xb.mean(axis=0), 1e-9) - 1
             Rg = np.column_stack([_bandpass(pos(Xb, FS), FS, band)] +
                                  [_bandpass(Bn[:, c], FS, band) for c in range(3)])
+    if refs is not None:
+        Mu = _resample(t, np.asarray(refs, float), tu)
+        if Mu is not None:
+            Rm = np.column_stack([_bandpass(Mu[:, c] - Mu[:, c].mean(), FS, band) for c in range(Mu.shape[1])])
+            Rg = Rm if Rg is None else np.column_stack([Rg, Rm])
 
     tc = default_centers(tu, win, step) if tc_in is None else tc_in
     hr = np.full(len(tc), np.nan)
     L = int(round(win * FS))
     nfft = int(2 ** np.ceil(np.log2(max(8192, L))))
     wsum, wcount = np.zeros(R), 0
+    fband = np.fft.rfftfreq(nfft, 1 / FS)
+    fband = fband[(fband >= band[0]) & (fband <= band[1])]
+    Pf = np.full((len(tc), len(fband)), np.nan)
     for i, c in enumerate(tc):
         sel = (tu >= c - win / 2) & (tu < c + win / 2)
         if sel.sum() < 0.9 * L:
@@ -355,12 +372,114 @@ def sanity_hr_snr(t, region_rgbs, win=10.0, step=1.0, band=BAND, centers=None, r
         if fused is None:
             continue
         hr[i] = 60 * f[m][np.argmax(fused)]
+        Pf[i] = fused
         if w_all.sum() > 0:
             wsum += w_all / w_all.sum()
             wcount += 1
+    out = (hr, tc)
     if return_weights:
-        return hr, tc, (wsum / wcount if wcount else np.full(R, np.nan))
-    return hr, tc
+        out = out + ((wsum / wcount if wcount else np.full(R, np.nan)),)
+    if return_spectra:
+        out = out + ((Pf, fband),)
+    return out
+
+
+# --------------------------------------------------------------- motion reference (SRMC)
+
+
+def motion_regressors(face_box, npix=None):
+    """
+    Per-frame motion signals from the face tracker (N x k):
+      horizontal / vertical face-centre position in face widths, log face width (scale),
+      and, if given, the total skin-pixel count relative to its median (regions sliding over
+      non-skin). NaN where the face box is missing.
+    """
+    fb = np.asarray(face_box, float)
+    w = np.where(fb[:, 2] > 0, fb[:, 2], np.nan)
+    wm = np.nanmedian(w)
+    cols = [(fb[:, 0] + fb[:, 2] / 2) / wm, (fb[:, 1] + fb[:, 3] / 2) / wm, np.log(w / wm)]
+    if npix is not None:
+        n = np.asarray(npix, float)
+        n = n.sum(axis=1) if n.ndim == 2 else n
+        med = np.nanmedian(n[n > 0]) if np.any(n > 0) else np.nan
+        cols.append(np.where(n > 0, n / med - 1, np.nan))
+    return np.column_stack(cols)
+
+
+def motion_score(t, M, centers, win=10.0, band=BAND):
+    """
+    Motion per window: RMS of the first three motion signals (position in face widths, log
+    scale) band-passed to the HR band, i.e. the head movement that can look like a pulse.
+    Returns one value per window centre (NaN if not enough data).
+    """
+    t = np.asarray(t, float)
+    M = np.asarray(M, float)[:, :3]
+    ok = np.all(np.isfinite(M), axis=1) & np.isfinite(t)
+    tc = np.asarray(centers, float)
+    out = np.full(len(tc), np.nan)
+    if ok.sum() < 2:
+        return out
+    tu = np.arange(t[ok][0], t[ok][-1] + 1e-9, 1 / FS)
+    Mu = _resample(t, M, tu)
+    B = np.column_stack([_bandpass(Mu[:, c] - Mu[:, c].mean(), FS, band) for c in range(Mu.shape[1])])
+    for i, c in enumerate(tc):
+        sel = (tu >= c - win / 2) & (tu < c + win / 2)
+        if sel.sum() >= 0.9 * win * FS:
+            out[i] = float(np.sqrt((B[sel] ** 2).sum(axis=1).mean()))
+    return out
+
+
+# --------------------------------------------------------------- Viterbi HR tracking (team, pipeline)
+
+def viterbi_hr(P, f, step=1.0, grid=(42.0, 180.0, 0.5), max_down=3.0, max_up=6.0, lam=0.1):
+    """
+    Port of src/signal/viterbiHR.m (branch pipeline): physiology-constrained HR path through
+    a spectrogram (offline, full Viterbi).
+      P  nWin x nf power spectra (any scaling; NaN / all-zero rows = no information -> flat)
+      f  nf frequencies (Hz)
+    States: HR grid (bpm). Emission: log of the spectrum interpolated on the grid and
+    normalised to unit sum. A change h -> h' over `step` s is allowed only within
+    [-max_down, +max_up] bpm/s (Tian et al. 2026) and costs lam * |h' - h|.
+    Returns hr (bpm, parabolic refinement), conf (spectral mass within +-3 bpm of the path).
+    """
+    P = np.asarray(P, float)
+    f = np.asarray(f, float)
+    g = np.arange(grid[0], grid[1] + 1e-9, grid[2])
+    nW, nS = P.shape[0], len(g)
+    E = np.zeros((nW, nS))
+    for w in range(nW):
+        row = P[w]
+        if not np.all(np.isfinite(row)) or row.sum() <= 0:
+            row = np.ones_like(f)                                  # empty window -> flat
+        h = np.interp(g, 60 * f, row, left=0, right=0)
+        h = np.maximum(h, 0)
+        h = h / max(h.sum(), np.finfo(float).eps)
+        E[w] = np.log(h + 1e-12)
+    d = g[None, :] - g[:, None]                                    # d[i, j] = h_j - h_i
+    T = -lam * np.abs(d)
+    T[(d < -max_down * step) | (d > max_up * step)] = -np.inf
+    score = E[0].copy()
+    back = np.zeros((nW, nS), dtype=np.int64)
+    for w in range(1, nW):
+        cand = score[:, None] + T                                  # over previous state i
+        back[w] = np.argmax(cand, axis=0)
+        score = cand[back[w], np.arange(nS)] + E[w]
+    path = np.zeros(nW, dtype=np.int64)
+    path[-1] = int(np.argmax(score))
+    for w in range(nW - 1, 0, -1):
+        path[w - 1] = back[w, path[w]]
+    hr = g[path].astype(float)
+    conf = np.zeros(nW)
+    for w in range(nW):
+        e = np.exp(E[w])
+        k = path[w]
+        if 0 < k < nS - 1:
+            a, b, c = e[k - 1], e[k], e[k + 1]
+            den = a - 2 * b + c
+            if den != 0:
+                hr[w] += grid[2] * max(-0.5, min(0.5, 0.5 * (a - c) / den))
+        conf[w] = e[np.abs(g - g[k]) <= 3].sum()
+    return hr, conf
 
 
 def ppg_hr(tg, ppg, win=10.0, step=1.0, band=BAND, centers=None):
